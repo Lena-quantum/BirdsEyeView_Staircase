@@ -919,10 +919,10 @@ MonoBehaviour:
   _raycastMask:
     serializedVersion: 2
     m_Bits: 4294967295
-  _defaultDepth: 2
+  _defaultDepth: 1
   _readoutFadeDelay: 0.5
   _repeatDelay: 0.25
-  _pathManager: {fileID: 0}
+  _pathManager: {fileID: 97412684}
 --- !u!114 &1558470525
 MonoBehaviour:
   m_ObjectHideFlags: 0
