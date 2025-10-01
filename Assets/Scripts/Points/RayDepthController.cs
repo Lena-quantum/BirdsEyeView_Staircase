@@ -24,6 +24,7 @@ namespace Points
 		private bool _triggerPrev;
 		private bool _aPrev;
 		private bool _bPrev;
+		private bool _leftTriggerPrev;
 		private float _nextRepeatTimeA;
 		private float _nextRepeatTimeB;
 		private InputDevice _rightHand;
@@ -54,15 +55,18 @@ namespace Points
 			_rightHand = EnsureDevice(_rightHand, XRNode.RightHand);
 			_leftHand = EnsureDevice(_leftHand, XRNode.LeftHand);
 
-			bool precision = ReadButton(_rightHand, CommonUsages.gripButton);
-			float precisionMul = precision ? _manager.PrecisionMultiplier : 1f;
+			// DISABLED: Precision mode via grip to avoid conflicts
+			// bool precision = ReadButton(_rightHand, CommonUsages.gripButton);
+			// float precisionMul = precision ? _manager.PrecisionMultiplier : 1f;
+			float precisionMul = 1f; // Always use normal precision for now
 
-			Vector2 stick;
-			if (_rightHand.TryGetFeatureValue(CommonUsages.primary2DAxis, out stick))
-			{
-				float delta = stick.y * (_manager.DepthSpeed * precisionMul) * Time.deltaTime;
-				_currentDepth = Mathf.Clamp(_currentDepth + delta, _manager.MinDepth, _manager.MaxDepth);
-			}
+			// DISABLED: Thumbstick depth control to avoid conflicts with XR Rig
+			// Vector2 stick;
+			// if (_rightHand.TryGetFeatureValue(CommonUsages.primary2DAxis, out stick))
+			// {
+			// 	float delta = stick.y * (_manager.DepthSpeed * precisionMul) * Time.deltaTime;
+			// 	_currentDepth = Mathf.Clamp(_currentDepth + delta, _manager.MinDepth, _manager.MaxDepth);
+			// }
 
 			bool aBtn = ReadButton(_rightHand, CommonUsages.primaryButton);
 			bool bBtn = ReadButton(_rightHand, CommonUsages.secondaryButton);
@@ -82,8 +86,10 @@ namespace Points
 			Vector3 origin = _rightControllerTransform.position;
 			Vector3 dir = _rightControllerTransform.forward;
 
-			bool leftGrip = ReadButton(_leftHand, CommonUsages.gripButton);
-			bool useSnap = _manager.SurfaceSnappingEnabled && !leftGrip;
+			// DISABLED: Left grip for surface snapping to avoid conflicts
+			// bool leftGrip = ReadButton(_leftHand, CommonUsages.gripButton);
+			// bool useSnap = _manager.SurfaceSnappingEnabled && !leftGrip;
+			bool useSnap = _manager.SurfaceSnappingEnabled;
 			bool snapped = false;
 			Vector3 ghostPos = origin + dir * _currentDepth;
 			if (useSnap)
@@ -108,6 +114,7 @@ namespace Points
 				_rayLine.SetPosition(1, origin + dir * Mathf.Min(_currentDepth, 10f));
 			}
 
+			// Handle right trigger for point placement
 			bool trigger = ReadButton(_rightHand, CommonUsages.triggerButton);
 			if (EdgePressed(trigger, ref _triggerPrev))
 			{
@@ -128,6 +135,13 @@ namespace Points
 						StartCoroutine(FadeReadoutRoutine());
 					}
 				}
+			}
+
+			// Handle left trigger for point removal
+			bool leftTrigger = ReadButton(_leftHand, CommonUsages.triggerButton);
+			if (EdgePressed(leftTrigger, ref _leftTriggerPrev))
+			{
+				HandlePointRemoval();
 			}
 		}
 
@@ -184,6 +198,33 @@ namespace Points
 			}
 
 			// If no point hit, still provide haptic feedback but don't place a point
+			_manager.TickHaptics(0.1f, 0.02f);
+		}
+
+		/// <summary>
+		/// Handle left trigger for point removal - hover over a point and press left trigger to remove it.
+		/// </summary>
+		private void HandlePointRemoval()
+		{
+			Vector3 origin = _rightControllerTransform.position;
+			Vector3 dir = _rightControllerTransform.forward;
+
+			// Raycast to find point handles
+			if (Physics.Raycast(origin, dir, out RaycastHit hit, _currentDepth + 0.5f))
+			{
+				var pointHandle = hit.collider.GetComponent<PointHandle>();
+				if (pointHandle != null)
+				{
+					// Remove the point
+					_manager.RemovePoint(pointHandle.Id);
+					_manager.ConfirmHaptics();
+					StopAllCoroutines();
+					StartCoroutine(FadeReadoutRoutine());
+					return;
+				}
+			}
+
+			// If no point hit, provide feedback that nothing was removed
 			_manager.TickHaptics(0.1f, 0.02f);
 		}
 

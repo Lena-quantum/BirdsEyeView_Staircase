@@ -239,6 +239,47 @@ namespace Points
 				_hapticsHelper.Pulse(amplitude, duration);
 			}
 		}
+
+		/// <summary>
+		/// Remove a point by its ID. Used for point removal functionality.
+		/// </summary>
+		/// <param name="pointId">The ID of the point to remove</param>
+		/// <returns>True if the point was found and removed, false otherwise</returns>
+		public bool RemovePoint(int pointId)
+		{
+			// Find the point in our data
+			PointData? pointToRemove = null;
+			foreach (var point in _points)
+			{
+				if (point.Id == pointId)
+				{
+					pointToRemove = point;
+					break;
+				}
+			}
+
+			if (!pointToRemove.HasValue)
+			{
+				Debug.LogWarning($"Point with ID {pointId} not found for removal");
+				return false;
+			}
+
+			// Remove from data list
+			_points.Remove(pointToRemove.Value);
+
+			// Remove the handle GameObject
+			if (_idToHandle.TryGetValue(pointId, out PointHandle handle))
+			{
+				if (handle != null && handle.gameObject != null)
+				{
+					DestroyImmediate(handle.gameObject);
+				}
+				_idToHandle.Remove(pointId);
+			}
+
+			Debug.Log($"Point {pointId} removed successfully");
+			return true;
+		}
 	}
 }
 

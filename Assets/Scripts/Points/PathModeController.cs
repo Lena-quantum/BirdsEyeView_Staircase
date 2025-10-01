@@ -18,9 +18,8 @@ namespace Points
 
 		private InputDevice _rightHand;
 		private InputDevice _leftHand;
-		private bool _menuButtonPrev;
+		private bool _rightGripPrev;
 		private bool _bButtonPrev;
-		private bool _gripButtonPrev;
 		private bool _triggerPrev;
 
 		/// <summary>
@@ -59,9 +58,9 @@ namespace Points
 			_rightHand = EnsureDevice(_rightHand, XRNode.RightHand);
 			_leftHand = EnsureDevice(_leftHand, XRNode.LeftHand);
 
-			// Handle path mode toggle (Menu button)
-			bool menuButton = ReadButton(_rightHand, CommonUsages.menuButton);
-			if (EdgePressed(menuButton, ref _menuButtonPrev))
+			// Handle path mode toggle (Right Grip button - changed from Menu to avoid Oculus Home)
+			bool rightGrip = ReadButton(_rightHand, CommonUsages.gripButton);
+			if (EdgePressed(rightGrip, ref _rightGripPrev))
 			{
 				_pathManager.TogglePathMode();
 				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
@@ -90,12 +89,12 @@ namespace Points
 				ProvideHapticFeedback(_hapticAmplitude * 0.5f, _hapticDuration);
 			}
 
-			// Handle grip for finishing route
-			bool gripButton = ReadButton(_rightHand, CommonUsages.gripButton);
-			if (EdgePressed(gripButton, ref _gripButtonPrev))
-			{
-				FinishCurrentRoute();
-			}
+			// DISABLED: Grip for finishing route (now used for path mode toggle)
+			// bool gripButton = ReadButton(_rightHand, CommonUsages.gripButton);
+			// if (EdgePressed(gripButton, ref _gripButtonPrev))
+			// {
+			// 	FinishCurrentRoute();
+			// }
 
 			// Handle point hovering for visual feedback
 			HandlePointHovering();
@@ -345,7 +344,7 @@ namespace Points
 		{
 			if (_pathManager == null || !_pathManager.PathModeEnabled)
 			{
-				return "Press Menu to enter Path Mode";
+				return "Press Right Grip to enter Path Mode";
 			}
 
 			var activeRoute = _pathManager.ActiveRoute;
@@ -359,7 +358,7 @@ namespace Points
 				return "Click another point to continue the route";
 			}
 
-			return "Click points to extend route, B to undo, Grip to finish";
+			return "Click points to extend route, B to undo";
 		}
 	}
 }
