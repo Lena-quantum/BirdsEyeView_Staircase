@@ -126,13 +126,13 @@ namespace Points
 			// Render the main path line
 			RenderPathLine(positions, path.PathColor);
 
-			// Render arrows if enabled
-			if (_showArrows)
-			{
-				RenderArrows(positions, path.PathColor);
-			}
+			// DISABLED: Arrows can be distracting - just show clean lines
+			// if (_showArrows)
+			// {
+			// 	RenderArrows(positions, path.PathColor);
+			// }
 
-			// Render point badges
+			// Render large point badges above points for easy visibility
 			RenderPointBadges(path, pointManager);
 		}
 
@@ -156,11 +156,41 @@ namespace Points
 			var activeRoute = _pathManager.GetActiveRoute();
 			var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
 			
-			ClearAllPaths();
-			
-			if (activeRoute != null && pointManager != null)
+			// NEVER clear paths - always render all routes
+			if (_pathManager.PathModeEnabled && activeRoute != null)
 			{
+				// In path mode: render all completed routes + active route
+				RenderAllCompletedRoutes();
 				RenderPath(activeRoute, pointManager);
+			}
+			else
+			{
+				// Not in path mode: render all completed routes
+				RenderAllCompletedRoutes();
+			}
+		}
+
+		/// <summary>
+		/// Render all completed routes when not in path mode.
+		/// </summary>
+		public void RenderAllCompletedRoutes()
+		{
+			if (_pathManager == null) return;
+
+			var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
+			if (pointManager == null) return;
+
+			// DON'T clear paths - just ensure all completed routes are rendered
+			// Only render routes that aren't already being rendered
+
+			// Render all completed routes
+			var routes = _pathManager.GetAllRoutes();
+			foreach (var route in routes)
+			{
+				if (route != null && route.PointCount >= 2)
+				{
+					RenderPath(route, pointManager);
+				}
 			}
 		}
 
@@ -362,16 +392,37 @@ namespace Points
 
 		private void RenderPointBadges(FlightPath path, PointPlacementManager pointManager)
 		{
-			int pointIndex = 1;
+			// Calculate starting index for continuous numbering across all routes
+			int startIndex = GetContinuousRouteStartIndex(path);
+			
 			foreach (int pointId in path.PointIds)
 			{
 				var pointHandle = pointManager.GetPoint(pointId);
 				if (pointHandle != null)
 				{
-					CreatePointBadge(pointHandle.transform.position, pointIndex.ToString(), path.PathColor);
-					pointIndex++;
+					int continuousIndex = startIndex + path.GetPointIndex(pointId) + 1;
+					CreatePointBadge(pointHandle.transform.position, continuousIndex.ToString(), path.PathColor);
 				}
 			}
+		}
+
+		/// <summary>
+		/// Get the starting index for continuous numbering across all routes.
+		/// </summary>
+		private int GetContinuousRouteStartIndex(FlightPath targetPath)
+		{
+			if (_pathManager == null) return 0;
+
+			int totalPointsBefore = 0;
+			var allRoutes = _pathManager.GetAllRoutes();
+			
+			foreach (var route in allRoutes)
+			{
+				if (route == targetPath) break;
+				totalPointsBefore += route.PointCount;
+			}
+			
+			return totalPointsBefore;
 		}
 
 		private void CreatePointBadge(Vector3 position, string text, Color color)
@@ -507,9 +558,17 @@ namespace Points
 
 		private void HandlePathModeChanged(bool pathModeEnabled)
 		{
-			if (!pathModeEnabled)
+			// Never clear paths when mode changes - keep all completed paths visible
+			// This allows users to see completed paths even when not in path building mode
+			if (pathModeEnabled)
 			{
-				ClearAllPaths();
+				// When entering path mode, refresh the display for active route
+				UpdateActiveRoute();
+			}
+			else
+			{
+				// When exiting path mode, render all completed routes instead of clearing
+				RenderAllCompletedRoutes();
 			}
 		}
 

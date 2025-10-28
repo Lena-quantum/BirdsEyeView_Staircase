@@ -10,6 +10,7 @@ namespace Points
 	{
 		[SerializeField] private FlightPathManager _pathManager;
 		[SerializeField] private PointPlacementManager _pointManager;
+		[SerializeField] private PathRenderer _pathRenderer;
 		[SerializeField] private LayerMask _pointLayerMask = -1;
 
 		[Header("Input Settings")]
@@ -20,6 +21,7 @@ namespace Points
 		private InputDevice _leftHand;
 		private bool _rightGripPrev;
 		private bool _bButtonPrev;
+		private bool _aButtonPrev;
 		private bool _triggerPrev;
 
 		/// <summary>
@@ -41,6 +43,11 @@ namespace Points
 			if (_pointManager == null)
 			{
 				_pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
+			}
+			
+			if (_pathRenderer == null)
+			{
+				_pathRenderer = UnityEngine.Object.FindFirstObjectByType<PathRenderer>();
 			}
 		}
 
@@ -89,6 +96,8 @@ namespace Points
 				ProvideHapticFeedback(_hapticAmplitude * 0.5f, _hapticDuration);
 			}
 
+			// A button is used for depth control in normal mode - not used in path mode
+
 			// DISABLED: Grip for finishing route (now used for path mode toggle)
 			// bool gripButton = ReadButton(_rightHand, CommonUsages.gripButton);
 			// if (EdgePressed(gripButton, ref _gripButtonPrev))
@@ -96,8 +105,8 @@ namespace Points
 			// 	FinishCurrentRoute();
 			// }
 
-			// Handle point hovering for visual feedback
-			HandlePointHovering();
+			// Handle point hovering for visual feedback - DISABLED to avoid conflicts with RayDepthController
+			// HandlePointHovering();
 		}
 
 		private void HandleTriggerInput()
@@ -111,16 +120,26 @@ namespace Points
 			Vector3 origin = rightControllerTransform.position;
 			Vector3 direction = rightControllerTransform.forward;
 
-			// First try to hit a point handle
-			if (Physics.Raycast(origin, direction, out RaycastHit hit, 10f, _pointLayerMask))
+			// First try to hit a point handle with much longer range for better reliability
+			if (Physics.Raycast(origin, direction, out RaycastHit hit, 50f, _pointLayerMask))
 			{
+				Debug.Log($"PathMode raycast hit: {hit.collider.name} at distance {hit.distance}");
 				var pointHandle = hit.collider.GetComponent<PointHandle>();
 				if (pointHandle != null)
 				{
+					Debug.Log($"Found PointHandle {pointHandle.Id} for path building");
 					// Add point to current route
 					AddPointToRoute(pointHandle);
 					return;
 				}
+				else
+				{
+					Debug.Log($"Hit {hit.collider.name} but no PointHandle component found");
+				}
+			}
+			else
+			{
+				Debug.Log("PathMode raycast hit nothing");
 			}
 
 			// If no point hit, start a new route if none exists
@@ -139,6 +158,14 @@ namespace Points
 			var activeRoute = _pathManager.ActiveRoute;
 			if (activeRoute != null && activeRoute.ContainsPoint(pointHandle.Id))
 			{
+				// If clicking on the LAST point of the current route, allow continuing
+				if (activeRoute.PointIds[activeRoute.PointIds.Count - 1] == pointHandle.Id)
+				{
+					Debug.Log($"Selected last point {pointHandle.Id} - ready to continue route");
+					ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+					return; // Don't add duplicate, just indicate we're ready to continue
+				}
+				
 				// If clicking on the first point of a valid route, close the loop
 				if (activeRoute.PointCount >= 3 && activeRoute.PointIds[0] == pointHandle.Id)
 				{
@@ -146,18 +173,51 @@ namespace Points
 					return;
 				}
 
-				// Otherwise, ignore duplicate points
+				// If point is already in route and it's not the last point, ignore it
+				Debug.Log($"Point {pointHandle.Id} is already in route (not last), ignoring selection");
 				return;
 			}
 
 			// Start new route if none exists
 			if (activeRoute == null)
 			{
-				_pathManager.StartNewRoute();
+				// Check if this point is the last point of any existing completed route
+				var existingRoute = FindRouteEndingWithPoint(pointHandle.Id);
+				if (existingRoute != null)
+				{
+					Debug.Log($"Reopening existing route {existingRoute.RouteName} to continue from point {pointHandle.Id}");
+					// Reopen the existing route for editing instead of creating a new one
+					_pathManager.ReopenRouteForEditing(existingRoute);
+					
+					// Update visuals
+					pointHandle.UpdateVisualState();
+					if (_pathRenderer != null)
+					{
+						_pathRenderer.UpdateActiveRoute();
+					}
+					
+					ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+					Debug.Log($"Route reopened. Select next point to continue adding to this route.");
+					return; // Don't add the point again - it's already in the route
+				}
+				else
+				{
+					_pathManager.StartNewRoute();
+					activeRoute = _pathManager.ActiveRoute; // Get the newly created route
+				}
 			}
 
 			// Add the point to the current route
 			activeRoute.AddPoint(pointHandle.Id);
+			
+			// Update the point's visual state immediately
+			pointHandle.UpdateVisualState();
+			
+			// Update path rendering immediately for real-time feedback
+			if (_pathRenderer != null)
+			{
+				_pathRenderer.UpdateActiveRoute();
+			}
 
 			ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
 		}
@@ -168,6 +228,24 @@ namespace Points
 
 			_pathManager.FinishCurrentRoute(closeLoop);
 			ProvideHapticFeedback(_hapticAmplitude * 1.5f, _hapticDuration * 2f);
+		}
+
+		/// <summary>
+		/// Find a completed route that ends with the specified point ID.
+		/// </summary>
+		private FlightPath FindRouteEndingWithPoint(int pointId)
+		{
+			if (_pathManager == null) return null;
+
+			var routes = _pathManager.GetAllRoutes();
+			foreach (var route in routes)
+			{
+				if (route != null && route.PointCount > 0 && route.PointIds[route.PointIds.Count - 1] == pointId)
+				{
+					return route;
+				}
+			}
+			return null;
 		}
 
 		private void HandlePointHovering()
@@ -225,13 +303,9 @@ namespace Points
 				{
 					targetColor = activeRoute.PathColor; // Route color when in active route
 				}
-				else if (_pathManager.IsPointInAnyRoute(pointHandle.Id))
-				{
-					targetColor = Color.gray; // Gray when in other routes
-				}
 				else
 				{
-					targetColor = _pointManager.PlacedPointColor; // Default color
+					targetColor = _pointManager.PlacedPointColor; // Default color (keep original, don't gray out)
 				}
 
 				// Smoothly transition to target color

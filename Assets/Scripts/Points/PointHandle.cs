@@ -86,7 +86,9 @@ namespace Points
 			var col = GetComponent<SphereCollider>();
 			if (col != null)
 			{
-				col.radius = _radius;
+				// Make collider much larger than visual radius for much easier targeting
+				col.radius = _radius * 5.0f; // 5x the visual size for very easy selection
+				col.isTrigger = false; // Make sure it's not a trigger
 			}
 			if (_renderer != null)
 			{
@@ -100,26 +102,35 @@ namespace Points
 			}
 		}
 
-		private void OnMouseEnter()
-		{
-			SetHovered(true);
-		}
+	// DISABLED: OnMouse handlers not needed for VR - interaction handled by RayDepthController
+	// private void OnMouseEnter()
+	// {
+	// 	SetHovered(true);
+	// }
 
-		private void OnMouseExit()
-		{
-			SetHovered(false);
-		}
+	// private void OnMouseExit()
+	// {
+	// 	SetHovered(false);
+	// }
 
-		private void OnMouseDown()
-		{
-			_manager?.NotifySelected(this);
-		}
+	// private void OnMouseDown()
+	// {
+	// 	_manager?.NotifySelected(this);
+	// }
 
 		private void SetHovered(bool hovered)
 		{
 			_hovered = hovered;
 			ApplyHoverMaterial();
 			_manager?.NotifyHovered(this, hovered);
+		}
+
+		/// <summary>
+		/// Public method to set hover state from external scripts.
+		/// </summary>
+		public void SetHoveredState(bool hovered)
+		{
+			SetHovered(hovered);
 		}
 
 		private void ApplyHoverMaterial()
@@ -137,21 +148,18 @@ namespace Points
 
 			var activeRoute = _pathManager.GetActiveRoute();
 			bool isInActiveRoute = activeRoute != null && activeRoute.ContainsPoint(_id);
-			bool isInAnyRoute = _pathManager.IsPointInAnyRoute(_id);
 
 			// Update point color based on route membership
 			if (_renderer != null)
 			{
 				Color targetColor = _color;
 
+				// Only change color if point is in the ACTIVE route being built
 				if (isInActiveRoute)
 				{
 					targetColor = activeRoute.PathColor;
 				}
-				else if (isInAnyRoute)
-				{
-					targetColor = Color.gray;
-				}
+				// Keep original color for completed routes - don't gray them out
 
 				foreach (var material in _renderer.materials)
 				{
@@ -233,18 +241,71 @@ namespace Points
 		{
 			if (_routeBadge == null || _routeBadgeText == null) return;
 
+			// Check if this point is in any completed route
+			var completedRoute = FindCompletedRouteContainingPoint();
+			
 			if (activeRoute != null && activeRoute.ContainsPoint(_id))
 			{
-				_routeIndex = activeRoute.GetPointIndex(_id) + 1; // Convert to 1-based
+				// Point is in active route being built - use continuous numbering
+				_routeIndex = GetContinuousRouteIndex(activeRoute);
 				_routeBadgeText.text = _routeIndex.ToString();
 				_routeBadgeText.color = activeRoute.PathColor;
 				_routeBadge.SetActive(true);
 			}
+			else if (completedRoute != null)
+			{
+				// Point is in a completed route - keep badge visible with continuous numbering
+				_routeIndex = GetContinuousRouteIndex(completedRoute);
+				_routeBadgeText.text = _routeIndex.ToString();
+				_routeBadgeText.color = completedRoute.PathColor;
+				_routeBadge.SetActive(true);
+			}
 			else
 			{
+				// Point is not in any route
 				_routeIndex = -1;
 				_routeBadge.SetActive(false);
 			}
+		}
+
+		/// <summary>
+		/// Get the continuous route index for this point across all routes.
+		/// </summary>
+		private int GetContinuousRouteIndex(FlightPath route)
+		{
+			if (_pathManager == null || route == null) return -1;
+
+			// Calculate total points before this route
+			int totalPointsBefore = 0;
+			var allRoutes = _pathManager.GetAllRoutes();
+			
+			foreach (var r in allRoutes)
+			{
+				if (r == route) break;
+				totalPointsBefore += r.PointCount;
+			}
+			
+			// Add this point's index within its route
+			int pointIndexInRoute = route.GetPointIndex(_id);
+			return totalPointsBefore + pointIndexInRoute + 1; // Convert to 1-based
+		}
+
+		/// <summary>
+		/// Find a completed route that contains this point.
+		/// </summary>
+		private FlightPath FindCompletedRouteContainingPoint()
+		{
+			if (_pathManager == null) return null;
+
+			var routes = _pathManager.GetAllRoutes();
+			foreach (var route in routes)
+			{
+				if (route != null && route.ContainsPoint(_id))
+				{
+					return route;
+				}
+			}
+			return null;
 		}
 
 		/// <summary>

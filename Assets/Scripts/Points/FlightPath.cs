@@ -204,15 +204,8 @@ namespace Points
 		/// </summary>
 		private static Color GetDefaultRouteColor(int routeIndex)
 		{
-			Color[] defaultColors = {
-				new Color(0.2f, 0.6f, 1.0f), // Blue
-				new Color(0.2f, 0.8f, 0.2f), // Green
-				new Color(1.0f, 0.6f, 0.2f), // Orange
-				new Color(0.8f, 0.2f, 0.8f), // Magenta
-				new Color(1.0f, 0.2f, 0.2f), // Red
-				new Color(0.6f, 0.2f, 1.0f), // Purple
-			};
-			return defaultColors[routeIndex % defaultColors.Length];
+			// Always use cyan for all routes to maintain consistency
+			return Color.cyan;
 		}
 	}
 }

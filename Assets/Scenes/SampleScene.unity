@@ -689,7 +689,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 8d66c4370a88d7941b57d8f8c137c1ac, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _textMesh: {fileID: 0}
+  _textMesh: {fileID: 1248771500}
   _fadeDuration: 0.35
 --- !u!102 &1248771500
 TextMesh:
@@ -712,7 +712,7 @@ TextMesh:
   m_Font: {fileID: 0}
   m_Color:
     serializedVersion: 2
-    rgba: 4294967295
+    rgba: 4279571645
 --- !u!23 &1248771501
 MeshRenderer:
   m_ObjectHideFlags: 0

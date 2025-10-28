@@ -169,6 +169,46 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Remove a specific point by ID.
+		/// </summary>
+		public bool RemovePoint(int pointId)
+		{
+			// Find and remove from data list
+			for (int i = _points.Count - 1; i >= 0; i--)
+			{
+				if (_points[i].Id == pointId)
+				{
+					_points.RemoveAt(i);
+					break;
+				}
+			}
+
+			// Remove from handle dictionary and destroy GameObject
+			if (_idToHandle.TryGetValue(pointId, out PointHandle handle))
+			{
+				_idToHandle.Remove(pointId);
+				if (handle != null)
+				{
+					// Remove any routes that contain this point
+					var pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
+					if (pathManager != null)
+					{
+						var routesToRemove = pathManager.GetRoutesContainingPoint(pointId);
+						foreach (var route in routesToRemove)
+						{
+							pathManager.RemoveRoute(route.RouteName);
+						}
+					}
+
+					Destroy(handle.gameObject);
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/// <summary>
 		/// Returns a read-only list of all placed points.
 		/// </summary>
 		public IReadOnlyList<PointData> GetPoints()
@@ -187,6 +227,21 @@ namespace Points
 
 		internal void NotifyHovered(PointHandle handle, bool isHovered)
 		{
+			// Clear hover state from all points first
+			foreach (var kvp in _idToHandle)
+			{
+				if (kvp.Value != null && kvp.Value != handle)
+				{
+					kvp.Value.SetHoveredState(false);
+				}
+			}
+
+			// Set hover state on the target handle
+			if (handle != null && isHovered)
+			{
+				handle.SetHoveredState(true);
+			}
+
 			OnPointHovered?.Invoke(handle, isHovered);
 		}
 
@@ -240,46 +295,6 @@ namespace Points
 			}
 		}
 
-		/// <summary>
-		/// Remove a point by its ID. Used for point removal functionality.
-		/// </summary>
-		/// <param name="pointId">The ID of the point to remove</param>
-		/// <returns>True if the point was found and removed, false otherwise</returns>
-		public bool RemovePoint(int pointId)
-		{
-			// Find the point in our data
-			PointData? pointToRemove = null;
-			foreach (var point in _points)
-			{
-				if (point.Id == pointId)
-				{
-					pointToRemove = point;
-					break;
-				}
-			}
-
-			if (!pointToRemove.HasValue)
-			{
-				Debug.LogWarning($"Point with ID {pointId} not found for removal");
-				return false;
-			}
-
-			// Remove from data list
-			_points.Remove(pointToRemove.Value);
-
-			// Remove the handle GameObject
-			if (_idToHandle.TryGetValue(pointId, out PointHandle handle))
-			{
-				if (handle != null && handle.gameObject != null)
-				{
-					DestroyImmediate(handle.gameObject);
-				}
-				_idToHandle.Remove(pointId);
-			}
-
-			Debug.Log($"Point {pointId} removed successfully");
-			return true;
-		}
 	}
 }
 

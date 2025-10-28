@@ -43,6 +43,34 @@ namespace Points
 			{
 				_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
 			}
+			
+			// Ensure the ray line is visible
+			if (_rayLine != null)
+			{
+				// Create a bright, always-visible material
+				Material rayMaterial = new Material(Shader.Find("Sprites/Default"));
+				rayMaterial.color = Color.cyan;
+				rayMaterial.renderQueue = 3000; // Render on top
+				_rayLine.material = rayMaterial;
+				
+				// Set a bright color so it's visible
+				_rayLine.startColor = new Color(0, 1, 1, 1); // Bright cyan, fully opaque
+				_rayLine.endColor = new Color(0, 1, 1, 0.5f); // Cyan, fade at end
+				
+				// Set visible width
+				_rayLine.startWidth = 0.01f; // 1cm (thicker for better visibility)
+				_rayLine.endWidth = 0.005f; // 5mm at end
+				
+				// Make sure it renders in world space
+				_rayLine.useWorldSpace = true;
+				
+				// Disable shadows
+				_rayLine.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+				_rayLine.receiveShadows = false;
+				
+				// Set sorting order to render on top
+				_rayLine.sortingOrder = 100;
+			}
 		}
 
 		private void Update()
@@ -54,6 +82,9 @@ namespace Points
 
 			_rightHand = EnsureDevice(_rightHand, XRNode.RightHand);
 			_leftHand = EnsureDevice(_leftHand, XRNode.LeftHand);
+
+			// Handle hover feedback for points
+			HandlePointHoverFeedback();
 
 			// DISABLED: Precision mode via grip to avoid conflicts
 			// bool precision = ReadButton(_rightHand, CommonUsages.gripButton);
@@ -111,7 +142,8 @@ namespace Points
 			{
 				_rayLine.positionCount = 2;
 				_rayLine.SetPosition(0, origin);
-				_rayLine.SetPosition(1, origin + dir * Mathf.Min(_currentDepth, 10f));
+				// Make ray extend far into the distance (100m = essentially infinite for VR)
+				_rayLine.SetPosition(1, origin + dir * 100f);
 			}
 
 			// Handle right trigger for point placement
@@ -123,8 +155,8 @@ namespace Points
 					// Check if we're in path mode
 					if (_pathManager != null && _pathManager.PathModeEnabled)
 					{
-						// In path mode, try to select an existing point instead of placing new one
-						HandlePathModeTrigger();
+						// Path mode is handled by PathModeController - do nothing here
+						// This prevents duplicate handling
 					}
 					else
 					{
@@ -174,32 +206,6 @@ namespace Points
 			return device;
 		}
 
-		/// <summary>
-		/// Handle trigger input when in path mode - try to select existing points.
-		/// </summary>
-		private void HandlePathModeTrigger()
-		{
-			Vector3 origin = _rightControllerTransform.position;
-			Vector3 dir = _rightControllerTransform.forward;
-
-			// Raycast to find point handles
-			if (Physics.Raycast(origin, dir, out RaycastHit hit, _currentDepth + 0.5f))
-			{
-				var pointHandle = hit.collider.GetComponent<PointHandle>();
-				if (pointHandle != null)
-				{
-					// Select the point for path building
-					_manager.NotifySelected(pointHandle);
-					_manager.ConfirmHaptics();
-					StopAllCoroutines();
-					StartCoroutine(FadeReadoutRoutine());
-					return;
-				}
-			}
-
-			// If no point hit, still provide haptic feedback but don't place a point
-			_manager.TickHaptics(0.1f, 0.02f);
-		}
 
 		/// <summary>
 		/// Handle left trigger for point removal - hover over a point and press left trigger to remove it.
@@ -209,23 +215,91 @@ namespace Points
 			Vector3 origin = _rightControllerTransform.position;
 			Vector3 dir = _rightControllerTransform.forward;
 
-			// Raycast to find point handles
-			if (Physics.Raycast(origin, dir, out RaycastHit hit, _currentDepth + 0.5f))
+			Debug.Log($"Left trigger pressed - raycasting from {origin} in direction {dir}");
+
+			// Raycast to find point handles with longer distance for better reliability
+			if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
 			{
+				Debug.Log($"Ray hit: {hit.collider.name} at distance {hit.distance}");
 				var pointHandle = hit.collider.GetComponent<PointHandle>();
 				if (pointHandle != null)
 				{
+					Debug.Log($"Found point handle {pointHandle.Id}, removing it");
 					// Remove the point
-					_manager.RemovePoint(pointHandle.Id);
-					_manager.ConfirmHaptics();
-					StopAllCoroutines();
-					StartCoroutine(FadeReadoutRoutine());
+					bool removed = _manager.RemovePoint(pointHandle.Id);
+					if (removed)
+					{
+						_manager.ConfirmHaptics();
+						StopAllCoroutines();
+						StartCoroutine(FadeReadoutRoutine());
+					}
 					return;
 				}
+				else
+				{
+					Debug.Log($"Hit object {hit.collider.name} but no PointHandle component found");
+				}
+			}
+			else
+			{
+				Debug.Log("Left trigger raycast hit nothing");
 			}
 
 			// If no point hit, provide feedback that nothing was removed
 			_manager.TickHaptics(0.1f, 0.02f);
+		}
+
+		// Simple hover tracking
+		private PointHandle _currentlyHovered;
+
+		/// <summary>
+		/// Handle hover feedback when pointing at points.
+		/// </summary>
+		private void HandlePointHoverFeedback()
+		{
+			Vector3 origin = _rightControllerTransform.position;
+			Vector3 dir = _rightControllerTransform.forward;
+
+			// Clear previous hover
+			if (_currentlyHovered != null)
+			{
+				SetPointHoverColor(_currentlyHovered, false);
+				_currentlyHovered = null;
+			}
+
+			// Raycast to find hovered points with longer range for better reliability
+			if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
+			{
+				var pointHandle = hit.collider.GetComponent<PointHandle>();
+				if (pointHandle != null)
+				{
+					// Set new hover
+					_currentlyHovered = pointHandle;
+					SetPointHoverColor(pointHandle, true);
+				}
+			}
+		}
+
+		/// <summary>
+		/// Set hover color on a point handle.
+		/// </summary>
+		private void SetPointHoverColor(PointHandle pointHandle, bool isHovered)
+		{
+			if (pointHandle == null) return;
+
+			var renderer = pointHandle.GetComponent<Renderer>();
+			if (renderer != null)
+			{
+				Color targetColor = isHovered ? Color.white : _manager.PlacedPointColor;
+
+				foreach (var material in renderer.materials)
+				{
+					if (material != null && material.HasProperty("_Color"))
+					{
+						material.color = targetColor;
+					}
+				}
+			}
 		}
 
 		/// <summary>

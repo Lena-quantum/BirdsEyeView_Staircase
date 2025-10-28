@@ -40,10 +40,16 @@ namespace Points
 					_pathModeEnabled = value;
 					OnPathModeChanged?.Invoke(value);
 					
-					if (!value && _currentRoute != null)
+					// When exiting path mode, automatically finish current route if it has 2+ points
+					if (!value && _currentRoute != null && _currentRoute.PointCount >= 2)
 					{
-						// Finish current route when exiting path mode
 						FinishCurrentRoute();
+						
+						// Ensure all completed routes are rendered
+						if (_pathRenderer != null)
+						{
+							_pathRenderer.RenderAllCompletedRoutes();
+						}
 					}
 				}
 			}
@@ -132,6 +138,31 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Reopen a completed route for editing/extending.
+		/// </summary>
+		public void ReopenRouteForEditing(FlightPath route)
+		{
+			if (route == null) return;
+
+			// Finish current route if one exists
+			if (_currentRoute != null)
+			{
+				FinishCurrentRoute();
+			}
+
+			// Remove the route from completed routes list
+			_routes.Remove(route);
+
+			// Set it as the active route for editing
+			_currentRoute = route;
+			_activeRouteName = route.RouteName;
+
+			OnActiveRouteChanged?.Invoke(_currentRoute);
+
+			Debug.Log($"Reopened route '{route.RouteName}' for editing. Current points: {route.PointCount}");
+		}
+
+		/// <summary>
 		/// Finish the current route and optionally close the loop.
 		/// </summary>
 		public void FinishCurrentRoute(bool closeLoop = false)
@@ -144,6 +175,9 @@ namespace Points
 			_currentRoute.IsClosed = closeLoop;
 			_routes.Add(_currentRoute);
 
+			// Reset point colors to original when route is finished
+			ResetPointColorsToOriginal(_currentRoute);
+
 			OnRouteFinished?.Invoke(_currentRoute);
 
 			Debug.Log($"Finished route: {_currentRoute.RouteName} with {_currentRoute.PointCount} points" +
@@ -152,6 +186,25 @@ namespace Points
 			_currentRoute = null;
 			_activeRouteName = null;
 			OnActiveRouteChanged?.Invoke(null);
+		}
+
+		/// <summary>
+		/// Reset all points in a route back to their original colors and update badges.
+		/// </summary>
+		private void ResetPointColorsToOriginal(FlightPath route)
+		{
+			if (route == null || _pointManager == null) return;
+
+			foreach (int pointId in route.PointIds)
+			{
+				var pointHandle = _pointManager.GetPoint(pointId);
+				if (pointHandle != null)
+				{
+					// DON'T reset to yellow - keep points blue when they're in completed routes
+					// Just update visual state to ensure badges are correct
+					pointHandle.UpdateVisualState();
+				}
+			}
 		}
 
 		/// <summary>
@@ -333,6 +386,12 @@ namespace Points
 
 			Debug.Log($"Added point {pointHandle.Id} to route {_currentRoute.RouteName}. " +
 					 $"Route now has {_currentRoute.PointCount} points.");
+
+			// Update path rendering immediately
+			if (_pathRenderer != null)
+			{
+				_pathRenderer.UpdateActiveRoute();
+			}
 
 			// Provide haptic feedback
 			if (_pointManager != null)
