@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Points
 {
 	/// <summary>
-	/// Represents a flight path as an ordered list of point IDs with metadata.
+	/// Represents test a flight path as an ordered list of point IDs with metadata.
 	/// </summary>
 	[System.Serializable]
 	public class FlightPath
