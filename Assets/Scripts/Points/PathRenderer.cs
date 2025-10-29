@@ -171,7 +171,7 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Render all completed routes when not in path mode.
+		/// Render completed route. Thesis Feature: Single route simplified.
 		/// </summary>
 		public void RenderAllCompletedRoutes()
 		{
@@ -180,17 +180,11 @@ namespace Points
 			var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
 			if (pointManager == null) return;
 
-			// DON'T clear paths - just ensure all completed routes are rendered
-			// Only render routes that aren't already being rendered
-
-			// Render all completed routes
-			var routes = _pathManager.GetAllRoutes();
-			foreach (var route in routes)
+			// Render the completed route if it exists
+			var completedRoute = _pathManager.CompletedRoute;
+			if (completedRoute != null && completedRoute.PointCount >= 2)
 			{
-				if (route != null && route.PointCount >= 2)
-				{
-					RenderPath(route, pointManager);
-				}
+				RenderPath(completedRoute, pointManager);
 			}
 		}
 
@@ -407,22 +401,12 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Get the starting index for continuous numbering across all routes.
+		/// Get the starting index for numbering. Thesis Feature: Always 0 for single route.
 		/// </summary>
 		private int GetContinuousRouteStartIndex(FlightPath targetPath)
 		{
-			if (_pathManager == null) return 0;
-
-			int totalPointsBefore = 0;
-			var allRoutes = _pathManager.GetAllRoutes();
-			
-			foreach (var route in allRoutes)
-			{
-				if (route == targetPath) break;
-				totalPointsBefore += route.PointCount;
-			}
-			
-			return totalPointsBefore;
+			// Simple: always start at 0 for single route mode
+			return 0;
 		}
 
 		private void CreatePointBadge(Vector3 position, string text, Color color)

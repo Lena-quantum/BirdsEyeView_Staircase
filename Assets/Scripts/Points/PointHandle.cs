@@ -22,11 +22,19 @@ namespace Points
 		private FlightPathManager _pathManager;
 		private bool _hovered;
 		private int _routeIndex = -1;
+		
+		// Thesis Feature: Store waypoint type for this point
+		private WaypointType _waypointType = WaypointType.Flythrough;
 
 		/// <summary>
 		/// Unique point ID assigned by the manager.
 		/// </summary>
 		public int Id => _id;
+
+		/// <summary>
+		/// Waypoint type assigned to this point.
+		/// </summary>
+		public WaypointType WaypointType => _waypointType;
 
 		/// <summary>
 		/// Initialize the point handle.
@@ -38,6 +46,13 @@ namespace Points
 			_color = color;
 			_radius = radius;
 			_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
+			
+			// Thesis Feature: Get waypoint type from manager's data
+			var pointData = manager.GetPointData(id);
+			if (pointData.HasValue)
+			{
+				_waypointType = pointData.Value.Type;
+			}
 			
 			CreateRouteBadge();
 			ApplyAppearance();
@@ -152,14 +167,14 @@ namespace Points
 			// Update point color based on route membership
 			if (_renderer != null)
 			{
-				Color targetColor = _color;
+				// Thesis Feature: Always use type-specific color
+				Color targetColor = WaypointTypeDefinition.GetTypeColor(_waypointType);
 
-				// Only change color if point is in the ACTIVE route being built
+				// Optional: Brighten if in active route (subtle highlight)
 				if (isInActiveRoute)
 				{
-					targetColor = activeRoute.PathColor;
+					targetColor = Color.Lerp(targetColor, Color.white, 0.2f);
 				}
-				// Keep original color for completed routes - don't gray them out
 
 				foreach (var material in _renderer.materials)
 				{
@@ -269,41 +284,28 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Get the continuous route index for this point across all routes.
+		/// Get the route index for this point. Thesis Feature: Simplified for single route.
 		/// </summary>
 		private int GetContinuousRouteIndex(FlightPath route)
 		{
 			if (_pathManager == null || route == null) return -1;
 
-			// Calculate total points before this route
-			int totalPointsBefore = 0;
-			var allRoutes = _pathManager.GetAllRoutes();
-			
-			foreach (var r in allRoutes)
-			{
-				if (r == route) break;
-				totalPointsBefore += r.PointCount;
-			}
-			
-			// Add this point's index within its route
+			// Simple 1-based index within the single route
 			int pointIndexInRoute = route.GetPointIndex(_id);
-			return totalPointsBefore + pointIndexInRoute + 1; // Convert to 1-based
+			return pointIndexInRoute + 1; // Convert to 1-based
 		}
 
 		/// <summary>
-		/// Find a completed route that contains this point.
+		/// Find if the completed route contains this point. Thesis Feature: Single route mode.
 		/// </summary>
 		private FlightPath FindCompletedRouteContainingPoint()
 		{
 			if (_pathManager == null) return null;
 
-			var routes = _pathManager.GetAllRoutes();
-			foreach (var route in routes)
+			var completedRoute = _pathManager.CompletedRoute;
+			if (completedRoute != null && completedRoute.ContainsPoint(_id))
 			{
-				if (route != null && route.ContainsPoint(_id))
-				{
-					return route;
-				}
+				return completedRoute;
 			}
 			return null;
 		}
@@ -354,11 +356,11 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Check if this point is in any route.
+		/// Check if this point is in the current route. Thesis Feature: Single route mode.
 		/// </summary>
 		public bool IsInAnyRoute()
 		{
-			return _pathManager != null && _pathManager.IsPointInAnyRoute(_id);
+			return _pathManager != null && _pathManager.IsPointInRoute(_id);
 		}
 	}
 }

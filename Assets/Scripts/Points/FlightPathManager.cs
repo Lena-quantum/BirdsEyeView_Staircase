@@ -22,10 +22,9 @@ namespace Points
 		public event Action<FlightPath, int> OnPointAddedToRoute;
 		public event Action<FlightPath> OnRouteCleared;
 
-		private readonly List<FlightPath> _routes = new List<FlightPath>();
+		// Thesis Feature: Simplified to single route management
 		private FlightPath _currentRoute;
-		private string _activeRouteName;
-		private int _nextRouteNumber = 1;
+		private FlightPath _completedRoute; // Store last completed route for reference
 
 		/// <summary>
 		/// Whether path building mode is currently active.
@@ -61,14 +60,9 @@ namespace Points
 		public FlightPath ActiveRoute => _currentRoute;
 
 		/// <summary>
-		/// All available routes in the system.
+		/// The last completed route (read-only access for metrics).
 		/// </summary>
-		public IReadOnlyList<FlightPath> AllRoutes => _routes;
-
-		/// <summary>
-		/// Number of routes currently created.
-		/// </summary>
-		public int RouteCount => _routes.Count;
+		public FlightPath CompletedRoute => _completedRoute;
 
 		private void Awake()
 		{
@@ -117,19 +111,16 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Start a new route with an optional name.
+		/// Start a new route. Thesis Feature: Single route mode - replaces any existing route.
 		/// </summary>
 		public void StartNewRoute(string routeName = null)
 		{
-			// Finish current route if one exists
-			if (_currentRoute != null)
-			{
-				FinishCurrentRoute();
-			}
+			// Thesis Feature: Clear previous route completely for new planning session
+			_currentRoute = null;
+			_completedRoute = null;
 
-			string name = routeName ?? $"{_defaultRoutePrefix} {_nextRouteNumber++}";
+			string name = routeName ?? $"{_defaultRoutePrefix}";
 			_currentRoute = new FlightPath(name);
-			_activeRouteName = name;
 
 			OnRouteStarted?.Invoke(_currentRoute);
 			OnActiveRouteChanged?.Invoke(_currentRoute);
@@ -138,32 +129,23 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Reopen a completed route for editing/extending.
+		/// Thesis Feature: Continue building the current route (simpler than reopening).
 		/// </summary>
-		public void ReopenRouteForEditing(FlightPath route)
+		public void ContinueCurrentRoute()
 		{
-			if (route == null) return;
-
-			// Finish current route if one exists
-			if (_currentRoute != null)
+			if (_currentRoute == null && _completedRoute != null)
 			{
-				FinishCurrentRoute();
+				// Reactivate the completed route
+				_currentRoute = _completedRoute;
+				_completedRoute = null;
+				
+				OnActiveRouteChanged?.Invoke(_currentRoute);
+				Debug.Log($"Continuing route '{_currentRoute.RouteName}'. Current points: {_currentRoute.PointCount}");
 			}
-
-			// Remove the route from completed routes list
-			_routes.Remove(route);
-
-			// Set it as the active route for editing
-			_currentRoute = route;
-			_activeRouteName = route.RouteName;
-
-			OnActiveRouteChanged?.Invoke(_currentRoute);
-
-			Debug.Log($"Reopened route '{route.RouteName}' for editing. Current points: {route.PointCount}");
 		}
 
 		/// <summary>
-		/// Finish the current route and optionally close the loop.
+		/// Finish the current route and optionally close the loop. Thesis Feature: Single route mode.
 		/// </summary>
 		public void FinishCurrentRoute(bool closeLoop = false)
 		{
@@ -173,7 +155,9 @@ namespace Points
 			}
 
 			_currentRoute.IsClosed = closeLoop;
-			_routes.Add(_currentRoute);
+			
+			// Store as completed route
+			_completedRoute = _currentRoute;
 
 			// Reset point colors to original when route is finished
 			ResetPointColorsToOriginal(_currentRoute);
@@ -184,7 +168,6 @@ namespace Points
 					  (closeLoop ? " (closed)" : " (open)"));
 
 			_currentRoute = null;
-			_activeRouteName = null;
 			OnActiveRouteChanged?.Invoke(null);
 		}
 
@@ -226,43 +209,11 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Set the active route for viewing/editing by name.
-		/// </summary>
-		public void SetActiveRoute(string routeName)
-		{
-			var route = _routes.FirstOrDefault(r => r.RouteName == routeName);
-			if (route != null)
-			{
-				_activeRouteName = routeName;
-				OnActiveRouteChanged?.Invoke(route);
-				Debug.Log($"Switched to route: {routeName}");
-			}
-		}
-
-		/// <summary>
-		/// Get the currently active route for viewing/editing.
+		/// Get the currently active or completed route. Thesis Feature: Single route simplified.
 		/// </summary>
 		public FlightPath GetActiveRoute()
 		{
-			if (_currentRoute != null)
-			{
-				return _currentRoute;
-			}
-
-			if (!string.IsNullOrEmpty(_activeRouteName))
-			{
-				return _routes.FirstOrDefault(r => r.RouteName == _activeRouteName);
-			}
-
-			return null;
-		}
-
-		/// <summary>
-		/// Get all routes in the system.
-		/// </summary>
-		public IReadOnlyList<FlightPath> GetAllRoutes()
-		{
-			return _routes;
+			return _currentRoute ?? _completedRoute;
 		}
 
 		/// <summary>
@@ -280,76 +231,39 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Clear all routes from the system.
+		/// Clear the current route completely. Thesis Feature: Single route mode.
 		/// </summary>
-		public void ClearAllRoutes()
+		public void ClearCurrentRoute()
 		{
-			_routes.Clear();
+			if (_currentRoute != null)
+			{
+				OnRouteCleared?.Invoke(_currentRoute);
+			}
+			if (_completedRoute != null)
+			{
+				OnRouteCleared?.Invoke(_completedRoute);
+			}
+			
 			_currentRoute = null;
-			_activeRouteName = null;
+			_completedRoute = null;
 			OnActiveRouteChanged?.Invoke(null);
-			Debug.Log("Cleared all routes.");
+			Debug.Log("Cleared current route.");
 		}
 
 		/// <summary>
-		/// Remove a specific route by name.
+		/// Check if a point is part of the current/completed route. Thesis Feature: Single route.
 		/// </summary>
-		public bool RemoveRoute(string routeName)
+		public bool IsPointInRoute(int pointId)
 		{
-			var route = _routes.FirstOrDefault(r => r.RouteName == routeName);
-			if (route != null)
+			if (_currentRoute != null && _currentRoute.ContainsPoint(pointId))
 			{
-				_routes.Remove(route);
-				if (_activeRouteName == routeName)
-				{
-					_activeRouteName = null;
-					OnActiveRouteChanged?.Invoke(null);
-				}
-				OnRouteCleared?.Invoke(route);
-				Debug.Log($"Removed route: {routeName}");
+				return true;
+			}
+			if (_completedRoute != null && _completedRoute.ContainsPoint(pointId))
+			{
 				return true;
 			}
 			return false;
-		}
-
-		/// <summary>
-		/// Get a route by name.
-		/// </summary>
-		public FlightPath GetRoute(string routeName)
-		{
-			return _routes.FirstOrDefault(r => r.RouteName == routeName);
-		}
-
-		/// <summary>
-		/// Check if a point is part of any route.
-		/// </summary>
-		public bool IsPointInAnyRoute(int pointId)
-		{
-			return _routes.Any(route => route.ContainsPoint(pointId)) ||
-				   (_currentRoute != null && _currentRoute.ContainsPoint(pointId));
-		}
-
-		/// <summary>
-		/// Get all routes that contain a specific point.
-		/// </summary>
-		public List<FlightPath> GetRoutesContainingPoint(int pointId)
-		{
-			var containingRoutes = new List<FlightPath>();
-
-			foreach (var route in _routes)
-			{
-				if (route.ContainsPoint(pointId))
-				{
-					containingRoutes.Add(route);
-				}
-			}
-
-			if (_currentRoute != null && _currentRoute.ContainsPoint(pointId))
-			{
-				containingRoutes.Add(_currentRoute);
-			}
-
-			return containingRoutes;
 		}
 
 		/// <summary>
@@ -401,11 +315,11 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Export route data for external systems.
+		/// Export current route data. Thesis Feature: Simplified single route export.
 		/// </summary>
-		public RouteExportData ExportRouteData(string routeName = null)
+		public RouteExportData ExportRouteData()
 		{
-			var route = !string.IsNullOrEmpty(routeName) ? GetRoute(routeName) : GetActiveRoute();
+			var route = GetActiveRoute();
 			if (route == null || _pointManager == null)
 			{
 				return new RouteExportData();

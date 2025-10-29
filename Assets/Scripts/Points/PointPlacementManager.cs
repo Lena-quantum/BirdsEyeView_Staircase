@@ -17,6 +17,11 @@ namespace Points
 			public Color Color;
 			public float Radius;
 			public DateTime CreatedAt;
+			
+			// Thesis Feature: Waypoint type system
+			public WaypointType Type;
+			public float YawDegrees;
+			public Dictionary<string, object> Parameters;
 		}
 
 		public event Action<PointData> OnPointPlaced;
@@ -46,6 +51,9 @@ namespace Points
 		private readonly List<PointData> _points = new List<PointData>();
 		private readonly Dictionary<int, PointHandle> _idToHandle = new Dictionary<int, PointHandle>();
 		private int _nextId = 1;
+		
+		// Thesis Feature: Current waypoint type selection
+		private WaypointType _currentTypeSelection = WaypointType.Flythrough;
 
 		/// <summary>
 		/// Minimum allowed placement depth in meters.
@@ -107,6 +115,19 @@ namespace Points
 		/// </summary>
 		public Transform PointsParent => _pointsParent;
 
+		/// <summary>
+		/// Currently selected waypoint type for new placements.
+		/// </summary>
+		public WaypointType CurrentTypeSelection
+		{
+			get => _currentTypeSelection;
+			set
+			{
+				_currentTypeSelection = value;
+				UpdateGhostColorForType();
+			}
+		}
+
 		private void Awake()
 		{
 			if (_ghostRenderer == null)
@@ -129,11 +150,20 @@ namespace Points
 
 			int id = _nextId++;
 			Vector3 position = _ghostTransform.position;
-			Color color = _placedPointColor;
+			
+			// Thesis Feature: Use type-specific color
+			Color color = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
 			float radius = _placedPointRadius;
 
 			PointHandle handle = Instantiate(_pointHandlePrefab, position, Quaternion.identity, _pointsParent != null ? _pointsParent : transform);
 			handle.Initialize(id, color, radius, this);
+
+			// Thesis Feature: Calculate yaw from right controller forward direction
+			float yaw = 0f;
+			if (_rightHandRayOrigin != null)
+			{
+				yaw = _rightHandRayOrigin.eulerAngles.y;
+			}
 
 			var data = new PointData
 			{
@@ -141,7 +171,10 @@ namespace Points
 				Position = position,
 				Color = color,
 				Radius = radius,
-				CreatedAt = DateTime.UtcNow
+				CreatedAt = DateTime.UtcNow,
+				Type = _currentTypeSelection,
+				YawDegrees = yaw,
+				Parameters = WaypointTypeDefinition.GetDefaultParameters(_currentTypeSelection)
 			};
 
 			_points.Add(data);
@@ -189,15 +222,11 @@ namespace Points
 				_idToHandle.Remove(pointId);
 				if (handle != null)
 				{
-					// Remove any routes that contain this point
+					// Thesis Feature: Clear route if it contains this point (single route mode)
 					var pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
-					if (pathManager != null)
+					if (pathManager != null && pathManager.IsPointInRoute(pointId))
 					{
-						var routesToRemove = pathManager.GetRoutesContainingPoint(pointId);
-						foreach (var route in routesToRemove)
-						{
-							pathManager.RemoveRoute(route.RouteName);
-						}
+						pathManager.ClearCurrentRoute();
 					}
 
 					Destroy(handle.gameObject);
@@ -295,7 +324,39 @@ namespace Points
 			}
 		}
 
+		/// <summary>
+		/// Update ghost sphere color to match currently selected waypoint type.
+		/// </summary>
+		private void UpdateGhostColorForType()
+		{
+			if (_ghostRenderer == null) return;
+			
+			Color typeColor = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
+			foreach (var mat in _ghostRenderer.sharedMaterials)
+			{
+				if (mat != null && mat.HasProperty("_Color"))
+				{
+					mat.color = typeColor;
+				}
+			}
+		}
+
+		/// <summary>
+		/// Get the data for a specific point by ID.
+		/// </summary>
+		public PointData? GetPointData(int id)
+		{
+			foreach (var point in _points)
+			{
+				if (point.Id == id)
+				{
+					return point;
+				}
+			}
+			return null;
+		}
 	}
 }
+
 
 

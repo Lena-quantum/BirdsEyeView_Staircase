@@ -13,18 +13,14 @@ namespace Points
 		[SerializeField] private bool _createPathManager = true;
 		[SerializeField] private bool _createPathRenderer = true;
 		[SerializeField] private bool _createPathModeController = true;
-		[SerializeField] private bool _createRouteUI = true;
+		[SerializeField] private bool _createRouteMetrics = false; // Disabled - can enable if needed
 
 		[Header("Component References")]
 		[SerializeField] private PointPlacementManager _pointManager;
 		[SerializeField] private FlightPathManager _pathManager;
 		[SerializeField] private PathRenderer _pathRenderer;
 		[SerializeField] private PathModeController _pathModeController;
-		[SerializeField] private RouteUI _routeUI;
-
-		[Header("UI Setup")]
-		[SerializeField] private bool _createUIPrefab = true;
-		[SerializeField] private GameObject _uiPrefab;
+		[SerializeField] private RouteMetricsDisplay _routeMetrics;
 
 		private void Start()
 		{
@@ -86,10 +82,10 @@ namespace Points
 				Debug.Log("Created PathModeController");
 			}
 
-			// Create RouteUI
-			if (_createRouteUI && _routeUI == null)
+			// Thesis Feature: Create RouteMetricsDisplay (optional)
+			if (_createRouteMetrics && _routeMetrics == null)
 			{
-				CreateRouteUI();
+				CreateRouteMetricsDisplay();
 			}
 
 			// Connect components
@@ -98,52 +94,11 @@ namespace Points
 			Debug.Log("Flight Path Builder system setup complete!");
 		}
 
-		private void CreateRouteUI()
+		private void CreateRouteMetricsDisplay()
 		{
-			if (_createUIPrefab && _uiPrefab != null)
-			{
-				// Instantiate UI prefab
-				var uiObject = Instantiate(_uiPrefab);
-				_routeUI = uiObject.GetComponent<RouteUI>();
-				Debug.Log("Created RouteUI from prefab");
-			}
-			else
-			{
-				// Create basic UI programmatically
-				CreateBasicRouteUI();
-			}
-		}
-
-		private void CreateBasicRouteUI()
-		{
-			// Create UI GameObject
-			var uiObject = new GameObject("Route UI");
-			uiObject.transform.SetParent(transform);
-
-			// Add Canvas
-			var canvas = uiObject.AddComponent<Canvas>();
-			canvas.renderMode = RenderMode.WorldSpace;
-			canvas.worldCamera = Camera.main;
-
-			// Add CanvasScaler
-			var scaler = uiObject.AddComponent<UnityEngine.UI.CanvasScaler>();
-			scaler.dynamicPixelsPerUnit = 10f;
-
-			// Add GraphicRaycaster
-			uiObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
-
-			// Create EventSystem if needed
-			if (UnityEngine.Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() == null)
-			{
-				var eventSystemObject = new GameObject("EventSystem");
-				eventSystemObject.AddComponent<UnityEngine.EventSystems.EventSystem>();
-				eventSystemObject.AddComponent<UnityEngine.EventSystems.StandaloneInputModule>();
-			}
-
-			// Add RouteUI component
-			_routeUI = uiObject.AddComponent<RouteUI>();
-
-			Debug.Log("Created basic RouteUI");
+			var metricsObj = new GameObject("Route Metrics Display");
+			_routeMetrics = metricsObj.AddComponent<RouteMetricsDisplay>();
+			Debug.Log("Created RouteMetricsDisplay");
 		}
 
 		private void ConnectComponents()
@@ -213,10 +168,8 @@ namespace Points
 				isValid = false;
 			}
 
-			if (_routeUI == null)
-			{
-				Debug.LogWarning("RouteUI is missing - UI functionality will not be available.");
-			}
+			// Note: Wrist menu is manually created by user (WristUICanvas in scene)
+			// RouteMetricsDisplay is optional
 
 			if (isValid)
 			{
@@ -235,25 +188,25 @@ namespace Points
 		/// </summary>
 		public string GetSetupInstructions()
 		{
-			return @"Flight Path Builder Setup Instructions:
+			return @"VR Drone Flight Path Planning - Thesis Setup Instructions:
 
 1. Ensure you have a PointPlacementManager in your scene
-2. Attach this FlightPathSetup script to a GameObject
-3. Click 'Setup Flight Path System' in the inspector or run it at start
-4. Validate the setup using 'Validate Setup'
-5. Test the system:
-   - Place some points using the existing point placement system
-   - Press Menu button to toggle Path Mode
-   - Click existing points to build routes
-   - Use B button to undo, Grip to finish routes
+2. Ensure you have WristUICanvas with 3 buttons for waypoint type selection
+3. Attach this FlightPathSetup script to a GameObject
+4. Click 'Setup Flight Path System' in the inspector
+5. Connect your buttons to call PointPlacementManager.CurrentTypeSelection
 
 Controls:
-- Menu Button: Toggle Path Mode
-- Trigger (Path Mode): Add point to route
-- B Button: Undo last point
-- Grip: Finish current route
+- A/B Buttons: Adjust placement depth
+- Trigger: Place waypoint / Add to route (in Path Mode)
+- Right Grip: Toggle Path Mode
+- B Button (Path Mode): Undo last waypoint
+- Left Trigger: Remove pointed waypoint
 
-The system extends your existing point placement without breaking current functionality.";
+Waypoint Types (3 types for study):
+- Flythrough (Yellow): Drone flies through without stopping
+- Stop to Rotate (Cyan): Drone stops, rotates to observe, then continues
+- Record 360° (Red): Drone stops and rotates slowly 360° for recording";
 		}
 	}
 }

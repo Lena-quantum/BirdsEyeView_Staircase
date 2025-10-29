@@ -181,13 +181,12 @@ namespace Points
 			// Start new route if none exists
 			if (activeRoute == null)
 			{
-				// Check if this point is the last point of any existing completed route
-				var existingRoute = FindRouteEndingWithPoint(pointHandle.Id);
-				if (existingRoute != null)
+				// Thesis Feature: Check if this point is the last point of the completed route
+				if (CompletedRouteEndsWithPoint(pointHandle.Id))
 				{
-					Debug.Log($"Reopening existing route {existingRoute.RouteName} to continue from point {pointHandle.Id}");
-					// Reopen the existing route for editing instead of creating a new one
-					_pathManager.ReopenRouteForEditing(existingRoute);
+					Debug.Log($"Continuing from completed route's last point {pointHandle.Id}");
+					// Continue the completed route instead of creating a new one
+					_pathManager.ContinueCurrentRoute();
 					
 					// Update visuals
 					pointHandle.UpdateVisualState();
@@ -197,7 +196,7 @@ namespace Points
 					}
 					
 					ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
-					Debug.Log($"Route reopened. Select next point to continue adding to this route.");
+					Debug.Log($"Route continued. Select next point to extend the route.");
 					return; // Don't add the point again - it's already in the route
 				}
 				else
@@ -231,21 +230,18 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Find a completed route that ends with the specified point ID.
+		/// Thesis Feature: Check if the completed route ends with this point (single route mode).
 		/// </summary>
-		private FlightPath FindRouteEndingWithPoint(int pointId)
+		private bool CompletedRouteEndsWithPoint(int pointId)
 		{
-			if (_pathManager == null) return null;
+			if (_pathManager == null) return false;
 
-			var routes = _pathManager.GetAllRoutes();
-			foreach (var route in routes)
+			var completedRoute = _pathManager.CompletedRoute;
+			if (completedRoute != null && completedRoute.PointCount > 0)
 			{
-				if (route != null && route.PointCount > 0 && route.PointIds[route.PointIds.Count - 1] == pointId)
-				{
-					return route;
-				}
+				return completedRoute.PointIds[completedRoute.PointIds.Count - 1] == pointId;
 			}
-			return null;
+			return false;
 		}
 
 		private void HandlePointHovering()
@@ -299,13 +295,16 @@ namespace Points
 				{
 					targetColor = Color.white; // Bright white when hovered
 				}
-				else if (isInActiveRoute)
-				{
-					targetColor = activeRoute.PathColor; // Route color when in active route
-				}
 				else
 				{
-					targetColor = _pointManager.PlacedPointColor; // Default color (keep original, don't gray out)
+					// Thesis Feature: Always use type-specific color
+					targetColor = WaypointTypeDefinition.GetTypeColor(pointHandle.WaypointType);
+					
+					// Subtle highlight if in active route
+					if (isInActiveRoute)
+					{
+						targetColor = Color.Lerp(targetColor, Color.white, 0.2f);
+					}
 				}
 
 				// Smoothly transition to target color

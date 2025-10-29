@@ -19,6 +19,9 @@ namespace Points
 		[SerializeField] private float _readoutFadeDelay = 0.5f;
 		[SerializeField] private float _repeatDelay = 0.25f;
 		[SerializeField] private FlightPathManager _pathManager;
+		
+		// Thesis Feature: Exclude UI layer from point placement raycasts
+		private LayerMask _surfaceRaycastMask;
 
 		private float _currentDepth;
 		private bool _triggerPrev;
@@ -42,6 +45,18 @@ namespace Points
 			if (_pathManager == null)
 			{
 				_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
+			}
+			
+			// Thesis Feature: Create raycast mask that excludes UI layer
+			int uiLayer = LayerMask.NameToLayer("UI");
+			if (uiLayer >= 0)
+			{
+				// Exclude UI layer from surface snapping
+				_surfaceRaycastMask = _raycastMask & ~(1 << uiLayer);
+			}
+			else
+			{
+				_surfaceRaycastMask = _raycastMask;
 			}
 			
 			// Ensure the ray line is visible
@@ -126,7 +141,8 @@ namespace Points
 			if (useSnap)
 			{
 				RaycastHit hit;
-				if (Physics.Raycast(origin, dir, out hit, _currentDepth + 0.01f, _raycastMask, QueryTriggerInteraction.Ignore))
+				// Thesis Feature: Use UI-excluded mask for surface snapping
+				if (Physics.Raycast(origin, dir, out hit, _currentDepth + 0.01f, _surfaceRaycastMask, QueryTriggerInteraction.Ignore))
 				{
 					ghostPos = hit.point;
 					snapped = true;
@@ -150,6 +166,13 @@ namespace Points
 			bool trigger = ReadButton(_rightHand, CommonUsages.triggerButton);
 			if (EdgePressed(trigger, ref _triggerPrev))
 			{
+				// Thesis Feature: Check if ray is hitting UI first - if so, don't place point
+				if (IsRayHittingUI(origin, dir))
+				{
+					Debug.Log("RayDepthController: Ray hitting UI, skipping point placement");
+					return; // Don't place point if we're clicking UI
+				}
+				
 				if (valid)
 				{
 					// Check if we're in path mode
@@ -290,7 +313,8 @@ namespace Points
 			var renderer = pointHandle.GetComponent<Renderer>();
 			if (renderer != null)
 			{
-				Color targetColor = isHovered ? Color.white : _manager.PlacedPointColor;
+				// Thesis Feature: Use type-specific color, brighten on hover
+				Color targetColor = isHovered ? Color.white : WaypointTypeDefinition.GetTypeColor(pointHandle.WaypointType);
 
 				foreach (var material in renderer.materials)
 				{
@@ -322,6 +346,27 @@ namespace Points
 			}
 
 			_manager.UpdateReadout(readoutText);
+		}
+
+		/// <summary>
+		/// Thesis Feature: Check if ray is hitting UI elements to prevent point placement on UI.
+		/// </summary>
+		private bool IsRayHittingUI(Vector3 origin, Vector3 direction)
+		{
+			int uiLayer = LayerMask.NameToLayer("UI");
+			if (uiLayer < 0) return false; // UI layer doesn't exist
+			
+			LayerMask uiMask = 1 << uiLayer;
+			
+			// Check if raycast hits UI within reasonable distance (2m)
+			RaycastHit hit;
+			if (Physics.Raycast(origin, direction, out hit, 2f, uiMask, QueryTriggerInteraction.Ignore))
+			{
+				Debug.Log($"RayDepthController: Ray hit UI object: {hit.collider.name}");
+				return true;
+			}
+			
+			return false;
 		}
 	}
 }
