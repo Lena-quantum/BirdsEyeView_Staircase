@@ -45,16 +45,45 @@ namespace Points
 
 		/// <summary>
 		/// Get the color associated with a waypoint type for visual differentiation.
+		/// Custom colors specified for thesis study.
 		/// </summary>
 		public static Color GetTypeColor(WaypointType type)
 		{
 			switch (type)
 			{
-				case WaypointType.Flythrough: return Color.yellow;              // Yellow - standard navigation
-				case WaypointType.StopRotateContinue: return Color.cyan;        // Cyan - stop & rotate
-				case WaypointType.Record360: return Color.red;                  // Red - 360° recording
-				default: return Color.white;
+				case WaypointType.Flythrough:
+					return HexToColor("F9FF00"); // Bright yellow - standard navigation
+				
+				case WaypointType.StopRotateContinue:
+					return HexToColor("38FF00"); // Bright green - stop & rotate
+				
+				case WaypointType.Record360:
+					return HexToColor("F74429"); // Orange-red - 360° recording
+				
+				default:
+					return Color.white;
 			}
+		}
+
+		/// <summary>
+		/// Convert hex color string to Unity Color.
+		/// </summary>
+		private static Color HexToColor(string hex)
+		{
+			// Remove # if present
+			hex = hex.TrimStart('#');
+			
+			// Parse RGB values
+			if (hex.Length == 6)
+			{
+				byte r = System.Convert.ToByte(hex.Substring(0, 2), 16);
+				byte g = System.Convert.ToByte(hex.Substring(2, 2), 16);
+				byte b = System.Convert.ToByte(hex.Substring(4, 2), 16);
+				
+				return new Color(r / 255f, g / 255f, b / 255f);
+			}
+			
+			return Color.white; // Fallback
 		}
 
 		/// <summary>

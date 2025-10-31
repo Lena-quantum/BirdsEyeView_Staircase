@@ -316,16 +316,12 @@ MonoBehaviour:
   _createPathManager: 1
   _createPathRenderer: 1
   _createPathModeController: 1
-  _createWristTypeSelector: 1
-  _createRouteMetrics: 1
+  _createRouteMetrics: 0
   _pointManager: {fileID: 1558470525}
   _pathManager: {fileID: 97412684}
   _pathRenderer: {fileID: 97412683}
   _pathModeController: {fileID: 97412682}
-  _wristTypeSelector: {fileID: 0}
   _routeMetrics: {fileID: 0}
-  _wristUIInteractor: {fileID: 0}
-  _vrDebugDisplay: {fileID: 0}
 --- !u!20 &192586346 stripped
 Camera:
   m_CorrespondingSourceObject: {fileID: 1767192439, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
@@ -421,6 +417,7 @@ GameObject:
   - component: {fileID: 633383206}
   - component: {fileID: 633383205}
   - component: {fileID: 633383204}
+  - component: {fileID: 633383209}
   m_Layer: 5
   m_Name: WristUICanvas
   m_TagString: Untagged
@@ -517,8 +514,8 @@ RectTransform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 633383203}
-  m_LocalRotation: {x: -0, y: -0.47582087, z: -0, w: 0.87954223}
-  m_LocalPosition: {x: 0, y: 0, z: -0.211}
+  m_LocalRotation: {x: 0, y: -0.42261827, z: 0, w: 0.9063079}
+  m_LocalPosition: {x: 0, y: 0, z: -0.201}
   m_LocalScale: {x: 0.01, y: 0.01, z: 0.01}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -527,12 +524,28 @@ RectTransform:
   - {fileID: 2053650888}
   - {fileID: 1310138053}
   m_Father: {fileID: 734507551}
-  m_LocalEulerAnglesHint: {x: 0, y: -56.826, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: -50, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -0.019, y: -0.005}
-  m_SizeDelta: {x: 15, y: 30}
+  m_AnchoredPosition: {x: -0.0125, y: -0.005}
+  m_SizeDelta: {x: 18, y: 30}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &633383209
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 633383203}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c8ffae45aa7ccf74bbe921c28c261c80, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _flythroughButton: {fileID: 1087198712}
+  _stopRotateButton: {fileID: 2053650889}
+  _recordButton: {fileID: 1310138054}
+  _pointManager: {fileID: 0}
 --- !u!1 &642897868
 GameObject:
   m_ObjectHideFlags: 0
@@ -794,6 +807,10 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 1717954561962503726, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7054646180837666701, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
+      propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
@@ -1200,7 +1217,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
   m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 90, y: 40}
+  m_SizeDelta: {x: 120, y: 60}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1087198712
 MonoBehaviour:
@@ -1548,7 +1565,7 @@ GameObject:
   - component: {fileID: 1310138055}
   - component: {fileID: 1310138054}
   m_Layer: 5
-  m_Name: RecordButton (1)
+  m_Name: RecordButton
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -1572,7 +1589,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 0}
   m_AnchorMax: {x: 0.5, y: 0}
   m_AnchoredPosition: {x: 0, y: 5}
-  m_SizeDelta: {x: 90, y: 40}
+  m_SizeDelta: {x: 120, y: 60}
   m_Pivot: {x: 0.5, y: 0}
 --- !u!114 &1310138054
 MonoBehaviour:
@@ -1985,7 +2002,7 @@ RectTransform:
   m_AnchorMin: {x: 0.5, y: 1}
   m_AnchorMax: {x: 0.5, y: 1}
   m_AnchoredPosition: {x: 0, y: -5}
-  m_SizeDelta: {x: 90, y: 40}
+  m_SizeDelta: {x: 120, y: 60}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &2053650889
 MonoBehaviour:

@@ -39,20 +39,16 @@ namespace Points
 		/// <summary>
 		/// Initialize the point handle.
 		/// </summary>
-		public void Initialize(int id, Color color, float radius, PointPlacementManager manager)
+		public void Initialize(int id, Color color, float radius, PointPlacementManager manager, WaypointType type)
 		{
 			_manager = manager;
 			_id = id;
-			_color = color;
 			_radius = radius;
 			_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
 			
-			// Thesis Feature: Get waypoint type from manager's data
-			var pointData = manager.GetPointData(id);
-			if (pointData.HasValue)
-			{
-				_waypointType = pointData.Value.Type;
-			}
+			// Thesis Feature: Use passed-in type directly (timing fix)
+			_waypointType = type;
+			_color = WaypointTypeDefinition.GetTypeColor(_waypointType);
 			
 			CreateRouteBadge();
 			ApplyAppearance();
@@ -107,11 +103,14 @@ namespace Points
 			}
 			if (_renderer != null)
 			{
+				// Thesis Feature: Always use type-specific color
+				Color displayColor = WaypointTypeDefinition.GetTypeColor(_waypointType);
+				
 				foreach (var mat in _renderer.materials)
 				{
 					if (mat != null && mat.HasProperty("_Color"))
 					{
-						mat.color = _color;
+						mat.color = displayColor;
 					}
 				}
 			}

@@ -22,6 +22,7 @@ namespace Points
 		
 		// Thesis Feature: Exclude UI layer from point placement raycasts
 		private LayerMask _surfaceRaycastMask;
+		private Canvas _wristUICanvas; // Reference to user's manual wrist menu
 
 		private float _currentDepth;
 		private bool _triggerPrev;
@@ -45,6 +46,18 @@ namespace Points
 			if (_pathManager == null)
 			{
 				_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
+			}
+			
+			// Thesis Feature: Find user's manual wrist menu
+			GameObject wristUIObj = GameObject.Find("WristUICanvas");
+			if (wristUIObj != null)
+			{
+				_wristUICanvas = wristUIObj.GetComponent<Canvas>();
+				Debug.Log("RayDepthController: Found WristUICanvas for UI blocking");
+			}
+			else
+			{
+				Debug.LogWarning("RayDepthController: WristUICanvas not found - button clicks might place waypoints");
 			}
 			
 			// Thesis Feature: Create raycast mask that excludes UI layer
@@ -235,10 +248,17 @@ namespace Points
 		/// </summary>
 		private void HandlePointRemoval()
 		{
-			Vector3 origin = _rightControllerTransform.position;
-			Vector3 dir = _rightControllerTransform.forward;
+			// Thesis Feature: Use LEFT controller for left trigger deletion
+			if (_leftControllerTransform == null)
+			{
+				Debug.LogWarning("Left controller transform not assigned - cannot delete waypoints");
+				return;
+			}
+			
+			Vector3 origin = _leftControllerTransform.position;
+			Vector3 dir = _leftControllerTransform.forward;
 
-			Debug.Log($"Left trigger pressed - raycasting from {origin} in direction {dir}");
+			Debug.Log($"Left trigger pressed - raycasting from LEFT controller at {origin} in direction {dir}");
 
 			// Raycast to find point handles with longer distance for better reliability
 			if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
@@ -313,8 +333,9 @@ namespace Points
 			var renderer = pointHandle.GetComponent<Renderer>();
 			if (renderer != null)
 			{
-				// Thesis Feature: Use type-specific color, brighten on hover
-				Color targetColor = isHovered ? Color.white : WaypointTypeDefinition.GetTypeColor(pointHandle.WaypointType);
+				// Thesis Feature: Always use type-specific color - brighten slightly on hover
+				Color typeColor = WaypointTypeDefinition.GetTypeColor(pointHandle.WaypointType);
+				Color targetColor = isHovered ? Color.Lerp(typeColor, Color.white, 0.3f) : typeColor;
 
 				foreach (var material in renderer.materials)
 				{
@@ -349,21 +370,52 @@ namespace Points
 		}
 
 		/// <summary>
-		/// Thesis Feature: Check if ray is hitting UI elements to prevent point placement on UI.
+		/// Thesis Feature: Check if ray is pointing toward the WristUICanvas to prevent placement.
 		/// </summary>
 		private bool IsRayHittingUI(Vector3 origin, Vector3 direction)
 		{
-			int uiLayer = LayerMask.NameToLayer("UI");
-			if (uiLayer < 0) return false; // UI layer doesn't exist
-			
-			LayerMask uiMask = 1 << uiLayer;
-			
-			// Check if raycast hits UI within reasonable distance (2m)
-			RaycastHit hit;
-			if (Physics.Raycast(origin, direction, out hit, 2f, uiMask, QueryTriggerInteraction.Ignore))
+			// Method 1: Check if WristUICanvas is visible and we're pointing toward it
+			if (_wristUICanvas != null && _wristUICanvas.gameObject.activeSelf)
 			{
-				Debug.Log($"RayDepthController: Ray hit UI object: {hit.collider.name}");
-				return true;
+				// Get canvas position
+				Vector3 canvasPos = _wristUICanvas.transform.position;
+				float distanceToCanvas = Vector3.Distance(origin, canvasPos);
+				
+				// If canvas is close (within 1m) and we're roughly pointing at it
+				if (distanceToCanvas < 1f)
+				{
+					Vector3 toCanvas = (canvasPos - origin).normalized;
+					float angle = Vector3.Angle(direction, toCanvas);
+					
+					// If pointing within 45 degrees of canvas
+					if (angle < 45f)
+					{
+						Debug.Log($"RayDepthController: Pointing at WristUICanvas (angle: {angle:F1}°), blocking waypoint placement");
+						return true;
+					}
+				}
+			}
+			
+			// Method 2: Physics raycast check for any UI-related objects
+			RaycastHit hit;
+			if (Physics.Raycast(origin, direction, out hit, 2f))
+			{
+				// Check if we hit anything related to UI/buttons
+				Transform current = hit.collider.transform;
+				for (int i = 0; i < 5; i++) // Check up to 5 parents
+				{
+					if (current == null) break;
+					
+					if (current.name.Contains("WristUICanvas") || 
+					    current.name.Contains("Button") ||
+					    current.name == "Border")
+					{
+						Debug.Log($"RayDepthController: Ray hit UI element ({current.name}), blocking waypoint placement");
+						return true;
+					}
+					
+					current = current.parent;
+				}
 			}
 			
 			return false;

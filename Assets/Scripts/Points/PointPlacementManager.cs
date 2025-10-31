@@ -135,6 +135,9 @@ namespace Points
 				var tr = _ghostTransform != null ? _ghostTransform.GetComponentInChildren<Renderer>() : null;
 				if (tr != null) _ghostRenderer = tr;
 			}
+			
+			// Thesis Feature: Initialize ghost with default type color
+			UpdateGhostColorForType();
 		}
 
 		/// <summary>
@@ -156,7 +159,7 @@ namespace Points
 			float radius = _placedPointRadius;
 
 			PointHandle handle = Instantiate(_pointHandlePrefab, position, Quaternion.identity, _pointsParent != null ? _pointsParent : transform);
-			handle.Initialize(id, color, radius, this);
+			handle.Initialize(id, color, radius, this, _currentTypeSelection); // Pass type directly
 
 			// Thesis Feature: Calculate yaw from right controller forward direction
 			float yaw = 0f;
@@ -222,11 +225,11 @@ namespace Points
 				_idToHandle.Remove(pointId);
 				if (handle != null)
 				{
-					// Thesis Feature: Clear route if it contains this point (single route mode)
+					// Thesis Feature: Remove waypoint from route (keep remaining segments)
 					var pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
 					if (pathManager != null && pathManager.IsPointInRoute(pointId))
 					{
-						pathManager.ClearCurrentRoute();
+						pathManager.RemoveWaypointFromRoute(pointId);
 					}
 
 					Destroy(handle.gameObject);
@@ -282,7 +285,11 @@ namespace Points
 		internal void UpdateGhostVisualValidity(bool isValid)
 		{
 			if (_ghostRenderer == null) return;
-			Color target = isValid ? _ghostValidColor : _ghostInvalidColor;
+			
+			// Thesis Feature: Use type-specific color, modulate brightness based on validity
+			Color typeColor = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
+			Color target = isValid ? typeColor : (typeColor * 0.5f); // Dim if invalid, full brightness if valid
+			
 			foreach (var mat in _ghostRenderer.sharedMaterials)
 			{
 				if (mat != null && mat.HasProperty("_Color"))

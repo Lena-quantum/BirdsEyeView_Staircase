@@ -18,8 +18,9 @@ namespace Points
 
 		[Header("Point Badge Settings")]
 		[SerializeField] private GameObject _pointBadgePrefab;
-		[SerializeField] private float _badgeOffset = 0.1f;
-		[SerializeField] private Vector3 _badgeScale = Vector3.one * 0.1f;
+		[SerializeField] private float _badgeOffset = 0.08f; // Height above waypoint (reduced from 0.1)
+		[SerializeField] private Vector3 _badgeScale = Vector3.one * 0.03f; // Badge size (reduced from 0.1)
+		[SerializeField] private int _badgeFontSize = 32; // TextMesh font size for badges
 
 		[Header("Performance")]
 		[SerializeField] private int _maxLineSegments = 1000;
@@ -104,6 +105,7 @@ namespace Points
 				_pathManager.OnPathModeChanged += HandlePathModeChanged;
 				_pathManager.OnActiveRouteChanged += HandleActiveRouteChanged;
 				_pathManager.OnPointAddedToRoute += HandlePointAddedToRoute;
+				_pathManager.OnRouteCleared += HandleRouteCleared; // Thesis Feature: Clear visuals when route deleted
 			}
 		}
 
@@ -117,20 +119,40 @@ namespace Points
 				return;
 			}
 
-			var positions = GetPathPositions(path, pointManager);
-			if (positions.Count < 2)
+			// Build and render segments with gaps when points are missing or explicit breaks are present
+			var currentSegment = new List<Vector3>();
+			foreach (int pointId in path.PointIds)
 			{
-				return;
+				// Treat non-positive IDs as explicit breaks between segments
+				if (pointId <= 0)
+				{
+					if (currentSegment.Count >= 2)
+					{
+						RenderPathLine(currentSegment, path.PathColor);
+					}
+					currentSegment.Clear();
+					continue;
+				}
+
+				var handle = pointManager.GetPoint(pointId);
+				if (handle == null)
+				{
+					// Missing point: end current segment
+					if (currentSegment.Count >= 2)
+					{
+						RenderPathLine(currentSegment, path.PathColor);
+					}
+					currentSegment.Clear();
+					continue;
+				}
+
+				currentSegment.Add(handle.transform.position);
 			}
 
-			// Render the main path line
-			RenderPathLine(positions, path.PathColor);
-
-			// DISABLED: Arrows can be distracting - just show clean lines
-			// if (_showArrows)
-			// {
-			// 	RenderArrows(positions, path.PathColor);
-			// }
+			if (currentSegment.Count >= 2)
+			{
+				RenderPathLine(currentSegment, path.PathColor);
+			}
 
 			// Render large point badges above points for easy visibility
 			RenderPointBadges(path, pointManager);
@@ -156,7 +178,9 @@ namespace Points
 			var activeRoute = _pathManager.GetActiveRoute();
 			var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
 			
-			// NEVER clear paths - always render all routes
+			// Clear first so removed segments disappear before re-rendering
+			ClearAllPaths();
+
 			if (_pathManager.PathModeEnabled && activeRoute != null)
 			{
 				// In path mode: render all completed routes + active route
@@ -218,10 +242,11 @@ namespace Points
 				
 				var textMesh = _pointBadgePrefab.AddComponent<TextMesh>();
 				textMesh.text = "1";
-				textMesh.fontSize = 24;
+				textMesh.fontSize = _badgeFontSize; // Use configurable size
 				textMesh.color = Color.white;
 				textMesh.anchor = TextAnchor.MiddleCenter;
 				textMesh.alignment = TextAlignment.Center;
+				textMesh.characterSize = 0.08f; // Smaller character size for better rendering
 
 				var meshRenderer = _pointBadgePrefab.GetComponent<MeshRenderer>();
 				meshRenderer.sortingOrder = 100;
@@ -386,17 +411,15 @@ namespace Points
 
 		private void RenderPointBadges(FlightPath path, PointPlacementManager pointManager)
 		{
-			// Calculate starting index for continuous numbering across all routes
-			int startIndex = GetContinuousRouteStartIndex(path);
-			
+			// Continuous numbering ignoring gaps/break markers and missing points
+			int continuousIndex = GetContinuousRouteStartIndex(path);
 			foreach (int pointId in path.PointIds)
 			{
+				if (pointId <= 0) continue; // skip explicit breaks
 				var pointHandle = pointManager.GetPoint(pointId);
-				if (pointHandle != null)
-				{
-					int continuousIndex = startIndex + path.GetPointIndex(pointId) + 1;
-					CreatePointBadge(pointHandle.transform.position, continuousIndex.ToString(), path.PathColor);
-				}
+				if (pointHandle == null) continue;
+				continuousIndex++;
+				CreatePointBadge(pointHandle.transform.position, continuousIndex.ToString(), path.PathColor);
 			}
 		}
 
@@ -422,6 +445,7 @@ namespace Points
 			{
 				textMesh.text = text;
 				textMesh.color = color;
+				textMesh.fontSize = _badgeFontSize; // Use configurable font size
 			}
 
 			badge.SetActive(true);
@@ -567,6 +591,15 @@ namespace Points
 			{
 				UpdateActiveRoute();
 			}
+		}
+
+		/// <summary>
+		/// Thesis Feature: Handle route being cleared (from waypoint deletion).
+		/// </summary>
+		private void HandleRouteCleared(FlightPath route)
+		{
+			Debug.Log("PathRenderer: Route cleared, removing all visual paths");
+			ClearAllPaths();
 		}
 	}
 }

@@ -251,6 +251,36 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Thesis Feature: Remove a specific waypoint from the route without clearing entire route.
+		/// </summary>
+		public void RemoveWaypointFromRoute(int pointId)
+		{
+			bool removed = false;
+			
+			// Remove from current route if present
+			if (_currentRoute != null && _currentRoute.ContainsPoint(pointId))
+			{
+				removed = _currentRoute.RemovePoint(pointId);
+				if (removed)
+				{
+					Debug.Log($"Removed waypoint {pointId} from current route. Remaining points: {_currentRoute.PointCount}");
+					OnActiveRouteChanged?.Invoke(_currentRoute);
+				}
+			}
+			
+			// Remove from completed route if present
+			if (_completedRoute != null && _completedRoute.ContainsPoint(pointId))
+			{
+				removed = _completedRoute.RemovePoint(pointId);
+				if (removed)
+				{
+					Debug.Log($"Removed waypoint {pointId} from completed route. Remaining points: {_completedRoute.PointCount}");
+					OnActiveRouteChanged?.Invoke(_completedRoute);
+				}
+			}
+		}
+
+		/// <summary>
 		/// Check if a point is part of the current/completed route. Thesis Feature: Single route.
 		/// </summary>
 		public bool IsPointInRoute(int pointId)

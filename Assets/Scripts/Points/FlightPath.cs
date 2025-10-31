@@ -109,6 +109,33 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Thesis Feature: Remove a specific point from anywhere in the route.
+		/// </summary>
+		public bool RemovePoint(int pointId)
+		{
+			int index = _pointIds.IndexOf(pointId);
+			if (index < 0) return false;
+			
+			_pointIds.RemoveAt(index);
+			
+			// Insert an explicit gap marker (0) only when removing from the middle
+			// This prevents auto-connecting neighbors in rendering
+			bool removedFromMiddle = index > 0 && index < _pointIds.Count;
+			if (removedFromMiddle)
+			{
+				int prevIdx = index - 1;
+				int nextIdx = index; // after removal, next element is now at 'index'
+				bool prevIsBreak = _pointIds[prevIdx] <= 0;
+				bool nextIsBreak = _pointIds[nextIdx] <= 0;
+				if (!prevIsBreak && !nextIsBreak)
+				{
+					_pointIds.Insert(index, 0);
+				}
+			}
+			return true;
+		}
+
+		/// <summary>
 		/// Clear all points from this route.
 		/// </summary>
 		public void Clear()
