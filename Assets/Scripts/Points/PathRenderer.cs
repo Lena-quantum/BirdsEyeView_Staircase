@@ -247,6 +247,9 @@ namespace Points
 				textMesh.anchor = TextAnchor.MiddleCenter;
 				textMesh.alignment = TextAlignment.Center;
 				textMesh.characterSize = 0.08f; // Smaller character size for better rendering
+				
+				// Ensure the badge always faces the camera
+				_pointBadgePrefab.AddComponent<PointLabelBillboard>();
 
 				var meshRenderer = _pointBadgePrefab.GetComponent<MeshRenderer>();
 				meshRenderer.sortingOrder = 100;
@@ -436,6 +439,12 @@ namespace Points
 		{
 			var badge = GetPooledBadge();
 			if (badge == null) return;
+
+			// Ensure billboard behavior exists (covers case of custom prefab)
+			if (badge.GetComponent<PointLabelBillboard>() == null)
+			{
+				badge.AddComponent<PointLabelBillboard>();
+			}
 
 			badge.transform.position = position + Vector3.up * _badgeOffset;
 			badge.transform.localScale = _badgeScale;

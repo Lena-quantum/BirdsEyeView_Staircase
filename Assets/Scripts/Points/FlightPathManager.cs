@@ -281,6 +281,27 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Merge segments by removing a break marker between two existing points in the route.
+		/// </summary>
+		public bool MergeSegmentsBetween(int fromPointId, int toPointId)
+		{
+			var route = GetActiveRoute();
+			if (route == null) return false;
+			if (!route.ContainsPoint(fromPointId) || !route.ContainsPoint(toPointId)) return false;
+
+			bool removed = route.RemoveFirstBreakBetween(fromPointId, toPointId);
+			if (removed)
+			{
+				OnActiveRouteChanged?.Invoke(route);
+				if (_pathRenderer != null)
+				{
+					_pathRenderer.UpdateActiveRoute();
+				}
+			}
+			return removed;
+		}
+
+		/// <summary>
 		/// Check if a point is part of the current/completed route. Thesis Feature: Single route.
 		/// </summary>
 		public bool IsPointInRoute(int pointId)

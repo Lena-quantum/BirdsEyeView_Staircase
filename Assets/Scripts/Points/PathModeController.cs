@@ -23,6 +23,9 @@ namespace Points
 		private bool _bButtonPrev;
 		private bool _aButtonPrev;
 		private bool _triggerPrev;
+		
+		// When set, indicates we want to continue the route starting from this point
+		private int? _resumeFromPointId;
 
 		/// <summary>
 		/// Layer mask for point raycast detection.
@@ -49,6 +52,12 @@ namespace Points
 			{
 				_pathRenderer = UnityEngine.Object.FindFirstObjectByType<PathRenderer>();
 			}
+
+			// Reset merge anchor whenever the active route changes
+			if (_pathManager != null)
+			{
+				_pathManager.OnActiveRouteChanged += _ => { _resumeFromPointId = null; };
+			}
 		}
 
 		private void Start()
@@ -69,6 +78,8 @@ namespace Points
 			bool rightGrip = ReadButton(_rightHand, CommonUsages.gripButton);
 			if (EdgePressed(rightGrip, ref _rightGripPrev))
 			{
+				// Clear any pending merge anchor when toggling mode
+				_resumeFromPointId = null;
 				_pathManager.TogglePathMode();
 				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
 			}
@@ -142,12 +153,9 @@ namespace Points
 				Debug.Log("PathMode raycast hit nothing");
 			}
 
-			// If no point hit, start a new route if none exists
-			if (_pathManager.ActiveRoute == null)
-			{
-				_pathManager.StartNewRoute();
-				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration * 2f);
-			}
+			// If no point is hit, treat as a no-op to avoid accidentally clearing/starting routes
+			// Do not start a new route on empty-space clicks
+			return;
 		}
 
 		private void AddPointToRoute(PointHandle pointHandle)
@@ -158,11 +166,25 @@ namespace Points
 			var activeRoute = _pathManager.ActiveRoute;
 			if (activeRoute != null && activeRoute.ContainsPoint(pointHandle.Id))
 			{
+				// If we are resuming from a point and the user clicked another existing point,
+				// try to merge segments by removing the break between them
+				if (_resumeFromPointId.HasValue && _resumeFromPointId.Value != pointHandle.Id)
+				{
+					bool merged = _pathManager.MergeSegmentsBetween(_resumeFromPointId.Value, pointHandle.Id);
+					if (merged)
+					{
+						_resumeFromPointId = pointHandle.Id; // now continue from this point
+						ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+						return;
+					}
+				}
+
 				// If clicking on the LAST point of the current route, allow continuing
 				if (activeRoute.PointIds[activeRoute.PointIds.Count - 1] == pointHandle.Id)
 				{
 					Debug.Log($"Selected last point {pointHandle.Id} - ready to continue route");
 					ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+					_resumeFromPointId = pointHandle.Id;
 					return; // Don't add duplicate, just indicate we're ready to continue
 				}
 				
@@ -173,19 +195,24 @@ namespace Points
 					return;
 				}
 
-				// If point is already in route and it's not the last point, ignore it
-				Debug.Log($"Point {pointHandle.Id} is already in route (not last), ignoring selection");
+				// If point is already in route and it's not last/first, set resume anchor
+				_resumeFromPointId = pointHandle.Id;
+				Debug.Log($"Anchored continuation at point {pointHandle.Id}. Select another existing point to merge, or a new point to extend.");
+				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration * 0.75f);
 				return;
 			}
 
 			// Start new route if none exists
 			if (activeRoute == null)
 			{
-				// Thesis Feature: Check if this point is the last point of the completed route
-				if (CompletedRouteEndsWithPoint(pointHandle.Id))
+				// Thesis Feature: If clicking any point that exists in the completed route,
+				// continue that route for in-place editing instead of starting fresh
+				var completedRoute = _pathManager.CompletedRoute;
+				if (completedRoute != null && completedRoute.ContainsPoint(pointHandle.Id))
 				{
-					Debug.Log($"Continuing from completed route's last point {pointHandle.Id}");
+					Debug.Log($"Continuing completed route from point {pointHandle.Id}");
 					// Continue the completed route instead of creating a new one
+					_resumeFromPointId = null; // ensure no stale anchor can auto-merge
 					_pathManager.ContinueCurrentRoute();
 					
 					// Update visuals
@@ -196,7 +223,8 @@ namespace Points
 					}
 					
 					ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
-					Debug.Log($"Route continued. Select next point to extend the route.");
+					_resumeFromPointId = pointHandle.Id;
+					Debug.Log($"Route continued. Select another existing point to merge, or a new point to extend.");
 					return; // Don't add the point again - it's already in the route
 				}
 				else
@@ -206,8 +234,23 @@ namespace Points
 				}
 			}
 
-			// Add the point to the current route
-			activeRoute.AddPoint(pointHandle.Id);
+			// Add or insert the point based on anchor selection
+			bool added = false;
+			if (_resumeFromPointId.HasValue)
+			{
+				// Insert directly after the anchor to build forward inside a gap
+				added = activeRoute.InsertPointAfter(_resumeFromPointId.Value, pointHandle.Id);
+				if (added)
+				{
+					_resumeFromPointId = pointHandle.Id; // chain forward
+				}
+			}
+			if (!added)
+			{
+				// Default to appending if no anchor or insert failed
+				activeRoute.AddPoint(pointHandle.Id);
+				_resumeFromPointId = pointHandle.Id;
+			}
 			
 			// Update the point's visual state immediately
 			pointHandle.UpdateVisualState();

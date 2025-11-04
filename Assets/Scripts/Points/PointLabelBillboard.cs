@@ -13,6 +13,15 @@ namespace Points
 
 		private Coroutine _fadeRoutine;
 
+	private void Awake()
+	{
+		// Auto-wire the TextMesh if not assigned
+		if (_textMesh == null)
+		{
+			_textMesh = GetComponent<TextMesh>();
+		}
+	}
+
 		/// <summary>
 		/// Set the displayed text.
 		/// </summary>
@@ -20,6 +29,14 @@ namespace Points
 		{
 			if (_textMesh != null)
 			{
+				// If we were fading out, stop and restore full alpha so the label shows again
+				if (_fadeRoutine != null)
+				{
+					StopCoroutine(_fadeRoutine);
+					_fadeRoutine = null;
+				}
+				var c = _textMesh.color;
+				_textMesh.color = new Color(c.r, c.g, c.b, 1f);
 				_textMesh.text = text;
 			}
 		}

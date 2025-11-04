@@ -136,6 +136,59 @@ namespace Points
 		}
 
 		/// <summary>
+		/// Remove the first break marker (<= 0) between two existing points to merge segments.
+		/// Returns true if a break was removed.
+		/// </summary>
+		public bool RemoveFirstBreakBetween(int fromPointId, int toPointId)
+		{
+			int fromIndex = _pointIds.IndexOf(fromPointId);
+			int toIndex = _pointIds.IndexOf(toPointId);
+			if (fromIndex < 0 || toIndex < 0 || fromIndex == toIndex)
+			{
+				return false;
+			}
+
+			if (fromIndex > toIndex)
+			{
+				// Ensure fromIndex < toIndex for forward scan
+				int tmp = fromIndex;
+				fromIndex = toIndex;
+				toIndex = tmp;
+			}
+
+			for (int i = fromIndex + 1; i < toIndex; i++)
+			{
+				if (_pointIds[i] <= 0)
+				{
+					_pointIds.RemoveAt(i);
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/// <summary>
+		/// Insert a new point immediately after the given anchor point in the route.
+		/// If the point already exists in the route, returns false.
+		/// </summary>
+		public bool InsertPointAfter(int anchorPointId, int newPointId)
+		{
+			if (newPointId <= 0) return false; // don't insert break markers as points
+			if (_pointIds.Contains(newPointId)) return false;
+
+			int anchorIndex = _pointIds.IndexOf(anchorPointId);
+			if (anchorIndex < 0)
+			{
+				return false;
+			}
+
+			int insertIndex = Mathf.Min(anchorIndex + 1, _pointIds.Count);
+			_pointIds.Insert(insertIndex, newPointId);
+			return true;
+		}
+
+		/// <summary>
 		/// Clear all points from this route.
 		/// </summary>
 		public void Clear()
