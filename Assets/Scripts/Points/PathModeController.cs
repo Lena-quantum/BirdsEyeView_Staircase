@@ -11,6 +11,7 @@ namespace Points
 		[SerializeField] private FlightPathManager _pathManager;
 		[SerializeField] private PointPlacementManager _pointManager;
 		[SerializeField] private PathRenderer _pathRenderer;
+		[SerializeField] private PathWarningPopup _warningPopup;
 		[SerializeField] private LayerMask _pointLayerMask = -1;
 
 		[Header("Input Settings")]
@@ -170,6 +171,14 @@ namespace Points
 				// try to merge segments by removing the break between them
 				if (_resumeFromPointId.HasValue && _resumeFromPointId.Value != pointHandle.Id)
 				{
+					if (SegmentBlockedBetween(_resumeFromPointId.Value, pointHandle.Id))
+					{
+						Debug.LogWarning("PathModeController: Cannot merge segments through a no-fly zone.");
+						_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone. Select a different point.");
+						ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+						return;
+					}
+
 					bool merged = _pathManager.MergeSegmentsBetween(_resumeFromPointId.Value, pointHandle.Id);
 					if (merged)
 					{
@@ -231,6 +240,32 @@ namespace Points
 				{
 					_pathManager.StartNewRoute();
 					activeRoute = _pathManager.ActiveRoute; // Get the newly created route
+				}
+			}
+
+			// Prevent creating segments that pass through collision zones
+			if (activeRoute != null)
+			{
+				int? startPointId = null;
+				if (_resumeFromPointId.HasValue && _resumeFromPointId.Value != pointHandle.Id && activeRoute.ContainsPoint(_resumeFromPointId.Value))
+				{
+					startPointId = _resumeFromPointId.Value;
+				}
+				else
+				{
+					int lastPointId = GetLastRealPointId(activeRoute);
+					if (lastPointId > 0 && lastPointId != pointHandle.Id)
+					{
+						startPointId = lastPointId;
+					}
+				}
+
+				if (startPointId.HasValue && SegmentBlockedBetween(startPointId.Value, pointHandle.Id))
+				{
+					Debug.LogWarning("PathModeController: Cannot connect route through a no-fly zone.");
+					_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone. Select a different point.");
+					ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+					return;
 				}
 			}
 
@@ -399,6 +434,50 @@ namespace Points
 			}
 
 			return rightController?.transform;
+		}
+
+		private bool SegmentBlockedBetween(int fromPointId, int toPointId)
+		{
+			if (_pointManager == null) return false;
+			if (fromPointId <= 0 || toPointId <= 0 || fromPointId == toPointId) return false;
+
+			var fromHandle = _pointManager.GetPoint(fromPointId);
+			var toHandle = _pointManager.GetPoint(toPointId);
+			if (fromHandle == null || toHandle == null) return false;
+
+			Vector3 start = fromHandle.transform.position;
+			Vector3 end = toHandle.transform.position;
+			if (Vector3.Distance(start, end) < 0.01f) return false;
+
+			float radius = Mathf.Max(0.01f, _pointManager.DroneRadius);
+			LayerMask mask = _pointManager.EnvironmentLayerMask;
+
+			// Trim a little off the capsule so barely touching the surface isn't counted as a violation
+			Vector3 direction = (end - start);
+			float distance = direction.magnitude;
+			Vector3 offset = distance > 0.001f ? direction.normalized * Mathf.Min(0.05f, distance * 0.25f) : Vector3.zero;
+			Vector3 capsuleStart = start + offset;
+			Vector3 capsuleEnd = end - offset;
+
+			if (Vector3.Distance(capsuleStart, capsuleEnd) < 0.005f)
+			{
+				capsuleStart = start;
+				capsuleEnd = end;
+			}
+
+			return Physics.CheckCapsule(capsuleStart, capsuleEnd, radius, mask, QueryTriggerInteraction.Ignore);
+		}
+
+		private static int GetLastRealPointId(FlightPath route)
+		{
+			if (route == null) return -1;
+			for (int i = route.PointIds.Count - 1; i >= 0; i--)
+			{
+				int id = route.PointIds[i];
+				if (id > 0) return id;
+			}
+
+			return -1;
 		}
 
 		private void ProvideHapticFeedback(float amplitude, float duration)

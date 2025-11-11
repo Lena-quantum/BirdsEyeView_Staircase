@@ -195,6 +195,11 @@ namespace Points
 3. Attach this FlightPathSetup script to a GameObject
 4. Click 'Setup Flight Path System' in the inspector
 5. Connect your buttons to call PointPlacementManager.CurrentTypeSelection
+6. COLLISION AVOIDANCE: Create an 'Environment' layer and assign it to all obstacles/walls
+   - Go to Layers dropdown (top right) > Add Layer > Create 'Environment' layer
+   - Select all photogrammetric models/walls and set Layer to 'Environment'
+   - In PointPlacementManager inspector, set '_environmentLayer' to 'Environment'
+   - Drone radius is set to 0.5m (50cm safety buffer) by default
 
 Controls:
 - A/B Buttons: Adjust placement depth
@@ -204,9 +209,18 @@ Controls:
 - Left Trigger: Remove pointed waypoint
 
 Waypoint Types (3 types for study):
-- Flythrough (Yellow): Drone flies through without stopping
-- Stop to Rotate (Cyan): Drone stops, rotates to observe, then continues
-- Record 360° (Red): Drone stops and rotates slowly 360° for recording";
+- Flythrough (Yellow F9FF00): Drone flies through without stopping
+- Stop to Rotate (Green 38FF00): Drone stops, rotates to observe, then continues
+- Record 360° (Orange-Red F74429): Drone stops and rotates slowly 360° for recording
+
+Collision Avoidance (NEW):
+- Ghost sphere turns GREY when too close to obstacles (<50cm)
+- Red semi-transparent SHELL appears matching the obstacle's shape
+- Shell is inflated by drone radius (50cm buffer) showing the no-fly zone boundary
+- For walls: flat plane 50cm in front of wall
+- For boxes/meshes: inflated transparent copy of the obstacle shape
+- Placement is BLOCKED until ghost moves to safe zone
+- Red shell fades in/out smoothly as you approach/leave collision zone";
 		}
 	}
 }
