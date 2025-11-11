@@ -292,12 +292,6 @@ namespace Points
 			float elapsed = 0f;
 			Vector3 startPos = from;
 
-			// Wait for play state (paused state will block here)
-			while (_currentState == FlightState.Paused)
-			{
-				yield return null;
-			}
-
 			Quaternion startRotation = ComputeLevelRotation(_droneInstance.transform.forward);
 			_droneInstance.transform.rotation = startRotation;
 			UpdateLastForward(startRotation * Vector3.forward);
@@ -314,8 +308,19 @@ namespace Points
 			}
 			Quaternion targetRotation = Quaternion.LookRotation(_lastFlatForward, Vector3.up);
 
-			while (elapsed < travelTime && _currentState == FlightState.Playing)
+			while (elapsed < travelTime)
 			{
+				if (_currentState == FlightState.Paused)
+				{
+					yield return null;
+					continue;
+				}
+
+				if (_currentState != FlightState.Playing)
+				{
+					yield break;
+				}
+
 				elapsed += Time.deltaTime;
 				float t = Mathf.Clamp01(elapsed / travelTime);
 
@@ -324,19 +329,6 @@ namespace Points
 
 				// Orient drone towards destination
 				_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
-
-				// Handle pause
-				if (_currentState == FlightState.Paused)
-				{
-					startPos = _droneInstance.transform.position;
-					travelTime -= elapsed;
-					elapsed = 0f;
-
-					while (_currentState == FlightState.Paused)
-					{
-						yield return null;
-					}
-				}
 
 				yield return null;
 			}
