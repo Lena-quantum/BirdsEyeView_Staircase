@@ -118,7 +118,7 @@ namespace Points
 		/// </summary>
 		public void Restart()
 		{
-			Stop();
+			StopFlight(true);
 			Play();
 		}
 
@@ -127,20 +127,34 @@ namespace Points
 		/// </summary>
 		public void Stop()
 		{
-			if (_flightCoroutine != null)
+			StopFlight(true);
+		}
+
+		/// <summary>
+		/// Reset the drone to the first waypoint without immediately restarting the flight.
+		/// </summary>
+		public void ResetToStart()
+		{
+			// Ensure we are not in the middle of a flight
+			StopFlight(true);
+
+			var route = GetRouteToFollow();
+			if (route == null || route.PointCount == 0)
 			{
-				StopCoroutine(_flightCoroutine);
-				_flightCoroutine = null;
+				return;
 			}
 
+			var segments = GetValidWaypointSegments(route);
+			if (segments.Count == 0)
+			{
+				return;
+			}
+
+			var first = segments[0];
+			Vector3? nextPosition = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
+
+			SpawnDroneAt(first.Position, nextPosition);
 			_currentState = FlightState.Idle;
-
-			// Destroy drone instance
-			if (_droneInstance != null)
-			{
-				Destroy(_droneInstance);
-				_droneInstance = null;
-			}
 		}
 
 		/// <summary>
@@ -201,29 +215,9 @@ namespace Points
 				yield break;
 			}
 
-			// Spawn drone at first waypoint
-			if (_dronePrefab != null)
-			{
-				Transform parent = _droneSpawnParent != null ? _droneSpawnParent : transform;
-				_droneInstance = Instantiate(_dronePrefab, segments[0].Position, Quaternion.identity, parent);
-				_droneInstance.transform.localScale = Vector3.one * _droneScale;
-
-				// Ensure the drone is level when it spawns
-				var leveled = ComputeLevelRotation(_droneInstance.transform.forward);
-				_droneInstance.transform.rotation = leveled;
-				UpdateLastForward(leveled * Vector3.forward);
-			}
-			else
-			{
-				// Create a simple sphere if no prefab assigned
-				_droneInstance = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-				_droneInstance.transform.localScale = Vector3.one * 0.2f * _droneScale;
-				_droneInstance.transform.position = segments[0].Position;
-				_droneInstance.name = "Drone (Generated)";
-				var leveled = ComputeLevelRotation(_droneInstance.transform.forward);
-				_droneInstance.transform.rotation = leveled;
-				UpdateLastForward(leveled * Vector3.forward);
-			}
+			// Spawn drone at first waypoint (will orient toward next if available)
+			Vector3? lookTarget = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
+			SpawnDroneAt(segments[0].Position, lookTarget);
 
 			// Face the first leg of the route if we have at least two points
 			if (segments.Count > 1)
@@ -340,6 +334,71 @@ namespace Points
 				_droneInstance.transform.rotation = targetRotation;
 				UpdateLastForward(targetRotation * Vector3.forward);
 			}
+		}
+
+		private void StopFlight(bool destroyDrone)
+		{
+			if (_flightCoroutine != null)
+			{
+				StopCoroutine(_flightCoroutine);
+				_flightCoroutine = null;
+			}
+
+			_currentState = FlightState.Idle;
+
+			if (destroyDrone && _droneInstance != null)
+			{
+				Destroy(_droneInstance);
+				_droneInstance = null;
+			}
+		}
+
+		private void SpawnDroneAt(Vector3 position, Vector3? nextPosition)
+		{
+			if (_dronePrefab != null)
+			{
+				Transform parent = _droneSpawnParent != null ? _droneSpawnParent : transform;
+				_droneInstance = Instantiate(_dronePrefab, position, Quaternion.identity, parent);
+				_droneInstance.transform.localScale = Vector3.one * _droneScale;
+			}
+			else
+			{
+				_droneInstance = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+				_droneInstance.transform.localScale = Vector3.one * 0.2f * _droneScale;
+				_droneInstance.transform.position = position;
+				_droneInstance.name = "Drone (Generated)";
+			}
+
+			if (_droneInstance == null)
+			{
+				return;
+			}
+
+			_droneInstance.transform.position = position;
+
+			Quaternion targetRotation;
+			if (nextPosition.HasValue)
+			{
+				Vector3 forward = Vector3.ProjectOnPlane(nextPosition.Value - position, Vector3.up);
+				if (forward.sqrMagnitude > 0.0001f)
+				{
+					forward.Normalize();
+					targetRotation = Quaternion.LookRotation(forward, Vector3.up);
+					UpdateLastForward(forward);
+				}
+				else
+				{
+					targetRotation = ComputeLevelRotation(_droneInstance.transform.forward);
+					UpdateLastForward(targetRotation * Vector3.forward);
+				}
+			}
+			else
+			{
+				targetRotation = ComputeLevelRotation(_droneInstance.transform.forward);
+				UpdateLastForward(targetRotation * Vector3.forward);
+			}
+
+			_droneInstance.transform.rotation = targetRotation;
 		}
 
 		/// <summary>

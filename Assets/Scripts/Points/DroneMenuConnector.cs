@@ -68,8 +68,8 @@ namespace Points
 		{
 			if (_droneFollower != null)
 			{
-				_droneFollower.Restart();
-				Debug.Log("Drone: Restart");
+				_droneFollower.ResetToStart();
+				Debug.Log("Drone: ResetToStart");
 			}
 		}
 
