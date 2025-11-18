@@ -14,6 +14,12 @@ namespace Points
 		[SerializeField] private bool _createPathRenderer = true;
 		[SerializeField] private bool _createPathModeController = true;
 		[SerializeField] private bool _createRouteMetrics = false; // Disabled - can enable if needed
+		[SerializeField] private bool _ensureSimpleFloor = true;
+		[SerializeField] private Vector2 _floorSize = new Vector2(40f, 40f);
+		[SerializeField] private float _floorHeight = 0f;
+		[SerializeField] private Material _floorMaterial;
+		[SerializeField] private bool _assignFloorLayer = true;
+		[SerializeField] private string _floorLayerName = "Environment";
 
 		[Header("Component References")]
 		[SerializeField] private PointPlacementManager _pointManager;
@@ -21,6 +27,9 @@ namespace Points
 		[SerializeField] private PathRenderer _pathRenderer;
 		[SerializeField] private PathModeController _pathModeController;
 		[SerializeField] private RouteMetricsDisplay _routeMetrics;
+
+		private GameObject _generatedFloor;
+		private const string GeneratedFloorName = "Generated Flight Path Floor";
 
 		private void Start()
 		{
@@ -90,6 +99,9 @@ namespace Points
 
 			// Connect components
 			ConnectComponents();
+
+			// Optionally ensure a simple floor exists in the scene
+			EnsureSimpleFloor();
 
 			Debug.Log("Flight Path Builder system setup complete!");
 		}
@@ -181,6 +193,53 @@ namespace Points
 			}
 
 			return isValid;
+		}
+
+		private void EnsureSimpleFloor()
+		{
+			if (!_ensureSimpleFloor)
+			{
+				return;
+			}
+
+			if (_generatedFloor == null)
+			{
+				_generatedFloor = GameObject.Find(GeneratedFloorName);
+			}
+
+			if (_generatedFloor == null)
+			{
+				_generatedFloor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+				_generatedFloor.name = GeneratedFloorName;
+			}
+
+			if (_generatedFloor == null)
+			{
+				Debug.LogWarning("FlightPathSetup: Unable to create simple floor.");
+				return;
+			}
+
+			_generatedFloor.transform.position = new Vector3(0f, _floorHeight, 0f);
+
+			float width = Mathf.Max(1f, _floorSize.x);
+			float depth = Mathf.Max(1f, _floorSize.y);
+			// Unity plane primitive is 10x10 units by default
+			_generatedFloor.transform.localScale = new Vector3(width / 10f, 1f, depth / 10f);
+
+			var renderer = _generatedFloor.GetComponent<Renderer>();
+			if (renderer != null && _floorMaterial != null)
+			{
+				renderer.sharedMaterial = _floorMaterial;
+			}
+
+			if (_assignFloorLayer && !string.IsNullOrWhiteSpace(_floorLayerName))
+			{
+				int layer = LayerMask.NameToLayer(_floorLayerName);
+				if (layer >= 0)
+				{
+					_generatedFloor.layer = layer;
+				}
+			}
 		}
 
 		/// <summary>
