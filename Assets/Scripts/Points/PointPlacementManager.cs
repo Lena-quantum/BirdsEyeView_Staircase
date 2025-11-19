@@ -169,15 +169,24 @@ namespace Points
 			return;
 		}
 		
+		Vector3 position = _ghostTransform.position;
+		var experimentManager = Experiment.ExperimentDataManager.Instance;
+		
 		// Thesis Feature: Prevent placement in collision zones
 		if (CheckGhostCollisionWithObstacles())
 		{
 			Debug.LogWarning("PointPlacementManager: Cannot place waypoint in collision zone (too close to obstacle).");
+			
+			// Thesis Feature: Notify experiment tracker
+			if (experimentManager != null)
+			{
+				experimentManager.OnPlacementBlocked(position, "NoFlyZone");
+			}
+			
 			return;
 		}
 
 		int id = _nextId++;
-		Vector3 position = _ghostTransform.position;
 			
 			// Thesis Feature: Use type-specific color
 			Color color = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
@@ -209,6 +218,12 @@ namespace Points
 			_idToHandle[id] = handle;
 
 			OnPointPlaced?.Invoke(data);
+			
+			// Thesis Feature: Notify experiment tracker
+			if (experimentManager != null)
+			{
+				experimentManager.OnWaypointPlaced(position, ConvertToPointType(_currentTypeSelection), yaw);
+			}
 		}
 
 		/// <summary>
@@ -255,6 +270,13 @@ namespace Points
 					if (pathManager != null && pathManager.IsPointInRoute(pointId))
 					{
 						pathManager.RemoveWaypointFromRoute(pointId);
+					}
+					
+					// Thesis Feature: Notify experiment tracker
+					var experimentManager = Experiment.ExperimentDataManager.Instance;
+					if (experimentManager != null)
+					{
+						experimentManager.OnWaypointDeleted(pointId);
 					}
 
 					Destroy(handle.gameObject);
@@ -468,6 +490,24 @@ namespace Points
 				}
 			}
 			return null;
+		}
+		
+		/// <summary>
+		/// Convert WaypointType to Experiment.PointType for tracking.
+		/// </summary>
+		private Experiment.PointType ConvertToPointType(WaypointType waypointType)
+		{
+			switch (waypointType)
+			{
+				case WaypointType.Flythrough:
+					return Experiment.PointType.FlyThrough;
+				case WaypointType.StopRotateContinue:
+					return Experiment.PointType.StopAndRotate;
+				case WaypointType.Record360:
+					return Experiment.PointType.Record360;
+				default:
+					return Experiment.PointType.FlyThrough;
+			}
 		}
 	}
 }

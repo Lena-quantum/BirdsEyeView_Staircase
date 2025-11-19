@@ -171,13 +171,29 @@ namespace Points
 				// try to merge segments by removing the break between them
 				if (_resumeFromPointId.HasValue && _resumeFromPointId.Value != pointHandle.Id)
 				{
-					if (SegmentBlockedBetween(_resumeFromPointId.Value, pointHandle.Id))
+				if (SegmentBlockedBetween(_resumeFromPointId.Value, pointHandle.Id))
+				{
+					Debug.LogWarning("PathModeController: Cannot merge segments through a no-fly zone.");
+					_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone. Select a different point.");
+					ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+					
+					// Thesis Feature: Notify experiment tracker
+					var prevHandle = _pointManager?.GetPoint(_resumeFromPointId.Value);
+					if (prevHandle != null)
 					{
-						Debug.LogWarning("PathModeController: Cannot merge segments through a no-fly zone.");
-						_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone. Select a different point.");
-						ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
-						return;
+						var experimentManager = Experiment.ExperimentDataManager.Instance;
+						if (experimentManager != null)
+						{
+							experimentManager.OnSegmentBlocked(
+								prevHandle.transform.position, 
+								pointHandle.transform.position,
+								"NoFlyZone"
+							);
+						}
 					}
+					
+					return;
+				}
 
 					bool merged = _pathManager.MergeSegmentsBetween(_resumeFromPointId.Value, pointHandle.Id);
 					if (merged)
@@ -265,15 +281,34 @@ namespace Points
 					Debug.LogWarning("PathModeController: Cannot connect route through a no-fly zone.");
 					_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone. Select a different point.");
 					ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+					
+					// Thesis Feature: Notify experiment tracker
+					var prevHandle = _pointManager?.GetPoint(startPointId.Value);
+					if (prevHandle != null)
+					{
+						var experimentManager = Experiment.ExperimentDataManager.Instance;
+						if (experimentManager != null)
+						{
+							experimentManager.OnSegmentBlocked(
+								prevHandle.transform.position, 
+								pointHandle.transform.position,
+								"NoFlyZone"
+							);
+						}
+					}
+					
 					return;
 				}
 			}
 
 			// Add or insert the point based on anchor selection
 			bool added = false;
+			int? previousPointId = null;
+			
 			if (_resumeFromPointId.HasValue)
 			{
 				// Insert directly after the anchor to build forward inside a gap
+				previousPointId = _resumeFromPointId.Value;
 				added = activeRoute.InsertPointAfter(_resumeFromPointId.Value, pointHandle.Id);
 				if (added)
 				{
@@ -283,8 +318,30 @@ namespace Points
 			if (!added)
 			{
 				// Default to appending if no anchor or insert failed
+				int lastId = GetLastRealPointId(activeRoute);
+				if (lastId > 0) previousPointId = lastId;
+				
 				activeRoute.AddPoint(pointHandle.Id);
 				_resumeFromPointId = pointHandle.Id;
+			}
+			
+			// Thesis Feature: Notify experiment tracker of segment creation
+			if (previousPointId.HasValue && _pointManager != null)
+			{
+				var prevHandle = _pointManager.GetPoint(previousPointId.Value);
+				if (prevHandle != null)
+				{
+					var experimentManager = Experiment.ExperimentDataManager.Instance;
+					if (experimentManager != null)
+					{
+						experimentManager.OnSegmentCreated(
+							previousPointId.Value, 
+							pointHandle.Id, 
+							prevHandle.transform.position, 
+							pointHandle.transform.position
+						);
+					}
+				}
 			}
 			
 			// Update the point's visual state immediately
