@@ -49,7 +49,7 @@ namespace Points
 	[SerializeField] private Transform _pointsParent;
 	
 	// Thesis Feature: Collision avoidance parameters
-	[SerializeField] private float _droneRadius = 0.5f; // 50 cm safety buffer
+	[SerializeField] private float _droneRadius = 0.45f; // 45 cm safety buffer (0.8m drone diameter / 2 + safety margin)
 	[SerializeField] private LayerMask _environmentLayer = 1 << 0; // Default layer initially
 	[SerializeField] private Color _collisionGhostColor = new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grey semi-transparent
 
