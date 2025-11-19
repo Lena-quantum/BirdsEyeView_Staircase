@@ -6,6 +6,7 @@ public class DroneRecordSpotlight : MonoBehaviour
     [Header("References")]
     [SerializeField] private Light recordLight;      // Spot Light component
     [SerializeField] private Renderer coneRenderer;  // Visual cone mesh renderer
+    [SerializeField] private Transform coneRoot;     // Optional separate cone transform for scaling
 
     [Header("Beam Settings")]
     [ColorUsage(true, true)]
@@ -16,21 +17,20 @@ public class DroneRecordSpotlight : MonoBehaviour
     [SerializeField] private float beamThickness = 1.2f; // scales cone x/y
 
     private bool isRecording;
-
-    private void Reset()
-    {
-        recordLight = GetComponentInChildren<Light>();
-        coneRenderer = GetComponentInChildren<Renderer>();
-    }
+    private Vector3 coneBaseScale = Vector3.one;
+    private float coneBaseRange = 1f;
+    private bool hasConeBaseScale;
 
     private void Awake()
     {
+        EnsureReferences();
         ApplySettings();
         SetBeamActive(false); // off by default
     }
 
     private void OnValidate()
     {
+        EnsureReferences();
         ApplySettings();
         if (!Application.isPlaying)
         {
@@ -50,11 +50,7 @@ public class DroneRecordSpotlight : MonoBehaviour
             recordLight.shadows = LightShadows.None; // good for Quest performance
         }
 
-        if (coneRenderer != null)
-        {
-            var t = coneRenderer.transform;
-            t.localScale = new Vector3(beamThickness, beamThickness, range);
-        }
+        UpdateConeScale();
     }
 
     public void BeginRecording()
@@ -75,6 +71,64 @@ public class DroneRecordSpotlight : MonoBehaviour
             recordLight.enabled = active;
 
         if (coneRenderer != null)
+        {
             coneRenderer.enabled = active;
+        }
+        else if (coneRoot != null)
+        {
+            coneRoot.gameObject.SetActive(active);
+        }
+    }
+
+    private void EnsureReferences()
+    {
+        if (recordLight == null)
+        {
+            recordLight = GetComponentInChildren<Light>();
+        }
+
+        if (coneRoot == null && coneRenderer != null)
+        {
+            coneRoot = coneRenderer.transform;
+        }
+    }
+
+    private void CaptureConeScale()
+    {
+        if (hasConeBaseScale || coneRoot == null)
+        {
+            return;
+        }
+
+        if (coneRoot == transform)
+        {
+            Debug.LogWarning("DroneRecordSpotlight: Cone root references the drone root. Assign a dedicated child transform for the volumetric cone to avoid stretching the entire drone.");
+            coneRoot = null;
+            return;
+        }
+
+        coneBaseScale = coneRoot.localScale;
+        coneBaseRange = Mathf.Max(0.0001f, range);
+        hasConeBaseScale = true;
+    }
+
+    private void UpdateConeScale()
+    {
+        if (coneRoot == null)
+        {
+            return;
+        }
+
+        CaptureConeScale();
+        if (!hasConeBaseScale)
+        {
+            return;
+        }
+
+        float rangeFactor = Mathf.Max(0.0001f, range) / coneBaseRange;
+        coneRoot.localScale = new Vector3(
+            coneBaseScale.x * beamThickness,
+            coneBaseScale.y * beamThickness,
+            coneBaseScale.z * rangeFactor);
     }
 }
