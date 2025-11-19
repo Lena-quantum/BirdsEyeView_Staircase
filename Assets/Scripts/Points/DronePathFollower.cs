@@ -23,6 +23,13 @@ namespace Points
 		[SerializeField] private float _record360Duration = 15.0f; // seconds for full 360° rotation at Record360 waypoints
 		[SerializeField] private float _recordPauseSeconds = 1.0f; // pause before/after record rotations
 
+		[Header("Record Visuals")]
+		[SerializeField] private bool _showRecordLightStream = true;
+		[SerializeField] private Color _recordLightStreamColor = new Color(1f, 0.3f, 0.1f, 0.85f);
+		[SerializeField, Min(0f)] private float _recordLightStreamLength = 2.5f;
+		[SerializeField, Min(0f)] private float _recordLightStreamWidth = 0.05f;
+		[SerializeField] private Vector3 _recordLightStreamLocalOffset = new Vector3(0f, -0.05f, 0.6f);
+
 		[Header("References")]
 		[SerializeField] private FlightPathManager _pathManager;
 		[SerializeField] private PointPlacementManager _pointManager;
@@ -38,6 +45,8 @@ namespace Points
 		private GameObject _droneInstance;
 		private Coroutine _flightCoroutine;
 		private Vector3 _lastFlatForward = Vector3.forward;
+		private LineRenderer _recordLightStream;
+		private Material _recordLightStreamMaterial;
 
 		/// <summary>
 		/// Current flight state (Idle, Playing, Paused).
@@ -269,6 +278,8 @@ namespace Points
 				}
 			}
 
+			SetRecordLightStreamVisible(false);
+
 			// Flight complete
 			_currentState = FlightState.Idle;
 			Debug.Log("DronePathFollower: Flight complete!");
@@ -360,6 +371,15 @@ namespace Points
 
 			_currentState = FlightState.Idle;
 
+			if (destroyDrone)
+			{
+				CleanupRecordLightStream(false);
+			}
+			else
+			{
+				SetRecordLightStreamVisible(false);
+			}
+
 			if (destroyDrone && _droneInstance != null)
 			{
 				Destroy(_droneInstance);
@@ -413,6 +433,8 @@ namespace Points
 			}
 
 			_droneInstance.transform.rotation = targetRotation;
+
+			SetupRecordLightStream();
 		}
 
 		/// <summary>
@@ -471,6 +493,8 @@ namespace Points
 		{
 			if (_droneInstance == null) yield break;
 
+			bool showingLightStream = PrepareRecordLightStreamForRecord();
+
 			if (_recordPauseSeconds > 0f)
 			{
 				yield return PauseAtPosition(waypoint.Position, _recordPauseSeconds);
@@ -514,6 +538,11 @@ namespace Points
 				_droneInstance.transform.position = waypoint.Position;
 				_droneInstance.transform.rotation = baseRotation;
 				UpdateLastForward(baseRotation * Vector3.forward);
+			}
+
+			if (showingLightStream)
+			{
+				SetRecordLightStreamVisible(false);
 			}
 
 			if (_recordPauseSeconds > 0f)
@@ -574,9 +603,146 @@ namespace Points
 			}
 		}
 
+		private void SetupRecordLightStream()
+		{
+			if (!_showRecordLightStream || _droneInstance == null)
+			{
+				return;
+			}
+
+			if (_recordLightStream == null)
+			{
+				var streamGO = new GameObject("RecordLightStream");
+				streamGO.transform.SetParent(_droneInstance.transform, false);
+				_recordLightStream = streamGO.AddComponent<LineRenderer>();
+				_recordLightStream.useWorldSpace = false;
+				_recordLightStream.numCapVertices = 6;
+				_recordLightStream.textureMode = LineTextureMode.Stretch;
+				_recordLightStream.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+				_recordLightStream.receiveShadows = false;
+				_recordLightStream.material = GetOrCreateRecordLightStreamMaterial();
+			}
+			else
+			{
+				_recordLightStream.transform.SetParent(_droneInstance.transform, false);
+			}
+
+			_recordLightStream.transform.localPosition = _recordLightStreamLocalOffset;
+			_recordLightStream.transform.localRotation = Quaternion.identity;
+			_recordLightStream.positionCount = 2;
+
+			UpdateRecordLightStreamVisual();
+			SetRecordLightStreamVisible(false);
+		}
+
+		private Material GetOrCreateRecordLightStreamMaterial()
+		{
+			if (_recordLightStreamMaterial == null)
+			{
+				Shader shader = Shader.Find("Sprites/Default");
+				if (shader == null)
+				{
+					shader = Shader.Find("Legacy Shaders/Particles/Alpha Blended");
+				}
+
+				if (shader == null)
+				{
+					shader = Shader.Find("Standard");
+				}
+
+				_recordLightStreamMaterial = new Material(shader)
+				{
+					name = "RecordLightStream (Runtime)",
+					enableInstancing = true,
+					hideFlags = HideFlags.DontSave
+				};
+			}
+
+			_recordLightStreamMaterial.color = _recordLightStreamColor;
+			return _recordLightStreamMaterial;
+		}
+
+		private void UpdateRecordLightStreamVisual()
+		{
+			if (_recordLightStream == null) return;
+
+			_recordLightStream.widthMultiplier = _recordLightStreamWidth;
+
+			float length = Mathf.Max(0f, _recordLightStreamLength);
+			_recordLightStream.SetPosition(0, Vector3.zero);
+			_recordLightStream.SetPosition(1, Vector3.forward * length);
+
+			var headColor = _recordLightStreamColor;
+			var tailColor = new Color(headColor.r, headColor.g, headColor.b, 0f);
+
+			var gradient = new Gradient();
+			gradient.SetKeys(
+				new[]
+				{
+					new GradientColorKey(headColor, 0f),
+					new GradientColorKey(headColor, 0.4f),
+					new GradientColorKey(tailColor, 1f)
+				},
+				new[]
+				{
+					new GradientAlphaKey(headColor.a, 0f),
+					new GradientAlphaKey(headColor.a, 0.5f),
+					new GradientAlphaKey(0f, 1f)
+				});
+
+			_recordLightStream.colorGradient = gradient;
+		}
+
+		private void SetRecordLightStreamVisible(bool visible)
+		{
+			if (_recordLightStream != null)
+			{
+				_recordLightStream.enabled = visible;
+			}
+		}
+
+		private bool PrepareRecordLightStreamForRecord()
+		{
+			if (!_showRecordLightStream || _droneInstance == null)
+			{
+				return false;
+			}
+
+			SetupRecordLightStream();
+
+			if (_recordLightStream == null)
+			{
+				return false;
+			}
+
+			UpdateRecordLightStreamVisual();
+			SetRecordLightStreamVisible(true);
+			return true;
+		}
+
+		private void CleanupRecordLightStream(bool destroyMaterial)
+		{
+			if (_recordLightStream != null)
+			{
+				if (_recordLightStream.gameObject != null)
+				{
+					Destroy(_recordLightStream.gameObject);
+				}
+
+				_recordLightStream = null;
+			}
+
+			if (destroyMaterial && _recordLightStreamMaterial != null)
+			{
+				Destroy(_recordLightStreamMaterial);
+				_recordLightStreamMaterial = null;
+			}
+		}
+
 		private void OnDestroy()
 		{
 			Stop();
+			CleanupRecordLightStream(true);
 		}
 
 		/// <summary>
