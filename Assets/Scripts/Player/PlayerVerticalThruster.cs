@@ -1,115 +1,72 @@
-using Unity.XR.CoreUtils;
 using UnityEngine;
-using UnityEngine.XR;
+using UnityEngine.InputSystem;
 
-namespace Player
+public class PlayerVerticalThruster : MonoBehaviour
 {
-	/// <summary>
-	/// Adds vertical locomotion mapped to the left controller's Y (up) and X (down) buttons.
-	/// Keeps existing locomotion untouched and only offsets the XR Origin in world space.
-	/// </summary>
-	public class PlayerVerticalThruster : MonoBehaviour
-	{
-		[SerializeField] private XROrigin _xrOrigin;
-		[SerializeField] private float _verticalSpeed = 1.5f; // meters per second
-		[SerializeField] private CharacterController _characterController;
+    [Header("Rig root to move (XR Origin / XR Rig)")]
+    public Transform rigRoot;   // drag "XR Origin (XR Rig)" here
 
-		private InputDevice _leftHand;
+    [Header("Vertical Flight")]
+    public float verticalSpeed = 2f;
 
-		private void Awake()
-		{
-			if (_xrOrigin == null)
-			{
-				_xrOrigin = GetComponent<XROrigin>();
-			}
+    [Header("Input Actions")]
+    public InputActionProperty flyUpAction;    // Y button (left controller)
+    public InputActionProperty flyDownAction;  // X button (left controller)
 
-			if (_xrOrigin == null)
-			{
-				_xrOrigin = FindFirstObjectByType<XROrigin>();
-			}
+    private CharacterController _characterController;
 
-			if (_characterController == null && _xrOrigin != null)
-			{
-				_characterController = _xrOrigin.GetComponent<CharacterController>();
-			}
-		}
+    private void Awake()
+    {
+        if (rigRoot == null)
+            rigRoot = transform;
 
-		private void OnEnable()
-		{
-			InputDevices.deviceConnected += OnDeviceConnected;
-			_leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-		}
+        // Try to find CharacterController on the rig
+        _characterController = rigRoot.GetComponent<CharacterController>();
+        
+        if (_characterController == null)
+        {
+            Debug.LogWarning("PlayerVerticalThruster: No CharacterController found. Vertical movement will ignore collisions.");
+        }
+    }
 
-		private void OnDisable()
-		{
-			InputDevices.deviceConnected -= OnDeviceConnected;
-		}
+    private void OnEnable()
+    {
+        flyUpAction.action?.Enable();
+        flyDownAction.action?.Enable();
+    }
 
-		private void OnDeviceConnected(InputDevice device)
-		{
-			if ((device.characteristics & (InputDeviceCharacteristics.Left | InputDeviceCharacteristics.Controller)) != 0)
-			{
-				_leftHand = device;
-			}
-		}
+    private void OnDisable()
+    {
+        flyUpAction.action?.Disable();
+        flyDownAction.action?.Disable();
+    }
 
-		private void Update()
-		{
-			if (_xrOrigin == null)
-			{
-				return;
-			}
+    private void Update()
+    {
+        if (rigRoot == null)
+            return;
 
-			_leftHand = EnsureDevice(_leftHand, XRNode.LeftHand);
-			if (!_leftHand.isValid)
-			{
-				return;
-			}
+        // Vertical movement from Y and X buttons
+        float vertical = 0f;
+        if (flyUpAction.action != null && flyUpAction.action.IsPressed()) 
+            vertical += 1f;
+        if (flyDownAction.action != null && flyDownAction.action.IsPressed()) 
+            vertical -= 1f;
 
-			bool ascendPressed = ReadButton(_leftHand, CommonUsages.secondaryButton); // Y button on left controller
-			bool descendPressed = ReadButton(_leftHand, CommonUsages.primaryButton);   // X button on left controller
-
-			float direction = 0f;
-			if (ascendPressed) direction += 1f;
-			if (descendPressed) direction -= 1f;
-
-			if (Mathf.Approximately(direction, 0f))
-			{
-				return;
-			}
-
-			float deltaY = direction * _verticalSpeed * Time.deltaTime;
-			MoveRigVertically(deltaY);
-		}
-
-		private void MoveRigVertically(float amount)
-		{
-			if (_characterController != null && _characterController.enabled)
-			{
-				Vector3 motion = new Vector3(0f, amount, 0f);
-				_characterController.Move(motion);
-				return;
-			}
-
-			Transform originTransform = _xrOrigin.Origin != null ? _xrOrigin.Origin.transform : _xrOrigin.transform;
-			if (originTransform == null)
-			{
-				return;
-			}
-
-			originTransform.position += new Vector3(0f, amount, 0f);
-		}
-
-		private static bool ReadButton(InputDevice device, InputFeatureUsage<bool> usage)
-		{
-			return device.isValid && device.TryGetFeatureValue(usage, out bool value) && value;
-		}
-
-		private static InputDevice EnsureDevice(InputDevice device, XRNode node)
-		{
-			if (device.isValid) return device;
-			return InputDevices.GetDeviceAtXRNode(node);
-		}
-	}
+        if (vertical != 0f)
+        {
+            Vector3 move = Vector3.up * vertical * verticalSpeed * Time.deltaTime;
+            
+            // Use CharacterController for collision-aware movement
+            if (_characterController != null)
+            {
+                _characterController.Move(move);
+            }
+            else
+            {
+                // Fallback: direct transform movement (no collisions)
+                rigRoot.position += move;
+            }
+        }
+    }
 }
-

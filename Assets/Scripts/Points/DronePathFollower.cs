@@ -109,6 +109,13 @@ namespace Points
 
 			_currentState = FlightState.Playing;
 			_flightCoroutine = StartCoroutine(FlyRoute(route));
+			
+			// Thesis Feature: Notify experiment tracker
+			var experimentManager = Experiment.ExperimentDataManager.Instance;
+			if (experimentManager != null)
+			{
+				experimentManager.OnDroneFlightStarted();
+			}
 		}
 
 		/// <summary>
@@ -276,6 +283,13 @@ namespace Points
 			// Flight complete
 			_currentState = FlightState.Idle;
 			Debug.Log("DronePathFollower: Flight complete!");
+			
+			// Thesis Feature: Notify experiment tracker
+			var experimentManager = Experiment.ExperimentDataManager.Instance;
+			if (experimentManager != null)
+			{
+				experimentManager.OnDroneFlightCompleted(true);
+			}
 		}
 
 		/// <summary>
