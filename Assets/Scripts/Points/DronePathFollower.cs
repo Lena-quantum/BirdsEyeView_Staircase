@@ -488,16 +488,43 @@ namespace Points
 
 		/// <summary>
 		/// Coroutine that performs a slow 360° rotation at a waypoint.
+		/// Record360 Feature: Fly to anchor, move vertically to recording height, record, return to anchor.
 		/// </summary>
 		private IEnumerator Record360Rotation(WaypointSegment waypoint, float duration)
 		{
 			if (_droneInstance == null) yield break;
 
+			// Get the point handle to check if it has a separate recording position
+			PointHandle handle = _pointManager != null ? _pointManager.GetPoint(waypoint.PointId) : null;
+			Vector3 anchorPosition = waypoint.Position;
+			Vector3 recordingPosition = anchorPosition; // Default to anchor if no separate position
+
+			if (handle != null && handle.HasRecordingPosition && handle.RecordingPosition.HasValue)
+			{
+				recordingPosition = handle.RecordingPosition.Value;
+				Debug.Log($"DronePathFollower: Record360 waypoint has separate recording position: Anchor={anchorPosition}, Recording={recordingPosition}");
+			}
+
+			bool hasVerticalDetour = Vector3.Distance(anchorPosition, recordingPosition) > 0.01f;
+
+			// Step 1: Pause at anchor position
+			if (_recordPauseSeconds > 0f && hasVerticalDetour)
+			{
+				yield return PauseAtPosition(anchorPosition, _recordPauseSeconds);
+			}
+
+			// Step 2: Fly vertically to recording position (if different from anchor)
+			if (hasVerticalDetour)
+			{
+				yield return StartCoroutine(FlyToPosition(anchorPosition, recordingPosition));
+			}
+
+			// Step 3: Perform 360° recording at recording position
 			bool showingLightStream = PrepareRecordLightStreamForRecord();
 
 			if (_recordPauseSeconds > 0f)
 			{
-				yield return PauseAtPosition(waypoint.Position, _recordPauseSeconds);
+				yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
 			}
 
 			Quaternion baseRotation = ComputeLevelRotation(_droneInstance.transform.forward);
@@ -525,7 +552,7 @@ namespace Points
 
 				if (_droneInstance != null)
 				{
-					_droneInstance.transform.position = waypoint.Position;
+					_droneInstance.transform.position = recordingPosition;
 					_droneInstance.transform.rotation = baseRotation * Quaternion.AngleAxis(t * 360f, Vector3.up);
 				}
 
@@ -535,7 +562,7 @@ namespace Points
 			// Reset to start rotation
 			if (_droneInstance != null)
 			{
-				_droneInstance.transform.position = waypoint.Position;
+				_droneInstance.transform.position = recordingPosition;
 				_droneInstance.transform.rotation = baseRotation;
 				UpdateLastForward(baseRotation * Vector3.forward);
 			}
@@ -547,7 +574,13 @@ namespace Points
 
 			if (_recordPauseSeconds > 0f)
 			{
-				yield return PauseAtPosition(waypoint.Position, _recordPauseSeconds);
+				yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
+			}
+
+			// Step 4: Return to anchor position (if we moved vertically)
+			if (hasVerticalDetour)
+			{
+				yield return StartCoroutine(FlyToPosition(recordingPosition, anchorPosition));
 			}
 		}
 

@@ -18,42 +18,73 @@ namespace Points
 		[SerializeField] private GameObject _routeBadge;
 		[SerializeField] private TextMesh _routeBadgeText;
 
-		private PointPlacementManager _manager;
-		private FlightPathManager _pathManager;
-		private bool _hovered;
-		private int _routeIndex = -1;
-		
-		// Thesis Feature: Store waypoint type for this point
-		private WaypointType _waypointType = WaypointType.Flythrough;
+	private PointPlacementManager _manager;
+	private FlightPathManager _pathManager;
+	private bool _hovered;
+	private int _routeIndex = -1;
+	
+	// Thesis Feature: Store waypoint type for this point
+	private WaypointType _waypointType = WaypointType.Flythrough;
+	
+	// Record360 Feature: Store anchor and recording positions for two-point recording system
+	private Vector3? _recordingPosition = null; // Height where 360° recording happens
+	private bool _hasRecordingPosition => _recordingPosition.HasValue;
 
 		/// <summary>
 		/// Unique point ID assigned by the manager.
 		/// </summary>
 		public int Id => _id;
 
-		/// <summary>
-		/// Waypoint type assigned to this point.
-		/// </summary>
-		public WaypointType WaypointType => _waypointType;
+	/// <summary>
+	/// Waypoint type assigned to this point.
+	/// </summary>
+	public WaypointType WaypointType => _waypointType;
 
-		/// <summary>
-		/// Initialize the point handle.
-		/// </summary>
-		public void Initialize(int id, Color color, float radius, PointPlacementManager manager, WaypointType type)
+	/// <summary>
+	/// Recording position for Record360 waypoints (where drone performs 360° recording).
+	/// For other waypoint types, this is null.
+	/// </summary>
+	public Vector3? RecordingPosition => _recordingPosition;
+
+	/// <summary>
+	/// Whether this waypoint has a separate recording position.
+	/// </summary>
+	public bool HasRecordingPosition => _hasRecordingPosition;
+
+	/// <summary>
+	/// Initialize the point handle.
+	/// </summary>
+	public void Initialize(int id, Color color, float radius, PointPlacementManager manager, WaypointType type)
+	{
+		_manager = manager;
+		_id = id;
+		_radius = radius;
+		_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
+		
+		// Thesis Feature: Use passed-in type directly (timing fix)
+		_waypointType = type;
+		_color = WaypointTypeDefinition.GetTypeColor(_waypointType);
+		
+		CreateRouteBadge();
+		ApplyAppearance();
+		UpdateLabel();
+	}
+
+	/// <summary>
+	/// Set the recording position for Record360 waypoints.
+	/// Called after initial placement to specify where the 360° recording should happen.
+	/// </summary>
+	public void SetRecordingPosition(Vector3 recordingPosition)
+	{
+		if (_waypointType != WaypointType.Record360)
 		{
-			_manager = manager;
-			_id = id;
-			_radius = radius;
-			_pathManager = UnityEngine.Object.FindFirstObjectByType<FlightPathManager>();
-			
-			// Thesis Feature: Use passed-in type directly (timing fix)
-			_waypointType = type;
-			_color = WaypointTypeDefinition.GetTypeColor(_waypointType);
-			
-			CreateRouteBadge();
-			ApplyAppearance();
-			UpdateLabel();
+			Debug.LogWarning($"PointHandle: Attempting to set recording position on non-Record360 waypoint (type={_waypointType})");
+			return;
 		}
+
+		_recordingPosition = recordingPosition;
+		Debug.Log($"PointHandle {_id}: Recording position set to {recordingPosition} (anchor at {transform.position})");
+	}
 
 		private void Reset()
 		{

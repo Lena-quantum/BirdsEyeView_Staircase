@@ -53,6 +53,13 @@ namespace Points
 	[SerializeField] private LayerMask _environmentLayer = 1 << 0; // Default layer initially
 	[SerializeField] private Color _collisionGhostColor = new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grey semi-transparent
 
+	// Record360 Feature: Two-step placement system
+	[SerializeField] private RecordingHeightController _recordingHeightController;
+	[SerializeField] private Transform _recordingGhostTransform; // Separate ghost for recording point
+	[SerializeField] private Renderer _recordingGhostRenderer;
+	[SerializeField] private Transform _anchorGhostTransform; // Visual anchor during height adjustment
+	[SerializeField] private Renderer _anchorGhostRenderer;
+
 	private readonly List<PointData> _points = new List<PointData>();
 	private readonly Dictionary<int, PointHandle> _idToHandle = new Dictionary<int, PointHandle>();
 	private int _nextId = 1;
@@ -62,6 +69,18 @@ namespace Points
 	
 	// Thesis Feature: Track highlighted obstacles for collision feedback
 	private readonly HashSet<ObstacleHighlighter> _currentlyHighlightedObstacles = new HashSet<ObstacleHighlighter>();
+
+	// Record360 Feature: Two-step placement state
+	private enum RecordPlacementState
+	{
+		None,              // Not placing a record waypoint
+		PlacingAnchor,     // Placing the anchor point (step 1)
+		AdjustingHeight    // Adjusting the recording height (step 2)
+	}
+
+	private RecordPlacementState _recordPlacementState = RecordPlacementState.None;
+	private Vector3 _pendingAnchorPosition;
+	private float _pendingAnchorYaw;
 
 		/// <summary>
 		/// Minimum allowed placement depth in meters.
@@ -133,33 +152,122 @@ namespace Points
 		/// </summary>
 		public LayerMask EnvironmentLayerMask => _environmentLayer;
 
-		/// <summary>
-		/// Currently selected waypoint type for new placements.
-		/// </summary>
-		public WaypointType CurrentTypeSelection
+	/// <summary>
+	/// Currently selected waypoint type for new placements.
+	/// </summary>
+	public WaypointType CurrentTypeSelection
+	{
+		get => _currentTypeSelection;
+		set
 		{
-			get => _currentTypeSelection;
-			set
+			_currentTypeSelection = value;
+			UpdateGhostColorForType();
+		}
+	}
+
+	/// <summary>
+	/// Whether we're currently adjusting the recording height for a Record360 waypoint.
+	/// </summary>
+	public bool IsAdjustingRecordingHeight => _recordPlacementState == RecordPlacementState.AdjustingHeight;
+
+	/// <summary>
+	/// Update the recording point position during height adjustment.
+	/// Called by RayDepthController with the current ray information.
+	/// </summary>
+	public void UpdateRecordingPointFromRay(Vector3 rayOrigin, Vector3 rayDirection)
+	{
+		if (_recordPlacementState != RecordPlacementState.AdjustingHeight) return;
+		if (_recordingHeightController == null) return;
+
+		_recordingHeightController.UpdateRecordingPointFromRay(rayOrigin, rayDirection);
+	}
+
+	/// <summary>
+	/// Update the recording point height directly.
+	/// Called by RayDepthController when adjusting depth with stick.
+	/// </summary>
+	public void UpdateRecordingPointHeight(float targetY)
+	{
+		if (_recordPlacementState != RecordPlacementState.AdjustingHeight) return;
+		if (_recordingHeightController == null) return;
+
+		_recordingHeightController.UpdateRecordingPointHeight(targetY);
+	}
+
+	private void Awake()
+	{
+		if (_ghostRenderer == null)
+		{
+			var tr = _ghostTransform != null ? _ghostTransform.GetComponentInChildren<Renderer>() : null;
+			if (tr != null) _ghostRenderer = tr;
+		}
+		
+		// Thesis Feature: Initialize ghost with default type color
+		UpdateGhostColorForType();
+
+		// Record360 Feature: Initialize recording height controller
+		if (_recordingHeightController == null)
+		{
+			_recordingHeightController = gameObject.AddComponent<RecordingHeightController>();
+		}
+
+		// Ensure recording ghost has a renderer if not set
+		if (_recordingGhostRenderer == null && _recordingGhostTransform != null)
+		{
+			_recordingGhostRenderer = _recordingGhostTransform.GetComponentInChildren<Renderer>();
+			if (_recordingGhostRenderer != null)
 			{
-				_currentTypeSelection = value;
-				UpdateGhostColorForType();
+				Debug.Log("PointPlacementManager: Auto-found recording ghost renderer");
 			}
 		}
 
-		private void Awake()
+		// Ensure anchor ghost has a renderer if not set
+		if (_anchorGhostRenderer == null && _anchorGhostTransform != null)
 		{
-			if (_ghostRenderer == null)
+			_anchorGhostRenderer = _anchorGhostTransform.GetComponentInChildren<Renderer>();
+			if (_anchorGhostRenderer != null)
 			{
-				var tr = _ghostTransform != null ? _ghostTransform.GetComponentInChildren<Renderer>() : null;
-				if (tr != null) _ghostRenderer = tr;
+				Debug.Log("PointPlacementManager: Auto-found anchor ghost renderer");
 			}
-			
-			// Thesis Feature: Initialize ghost with default type color
-			UpdateGhostColorForType();
 		}
+
+		if (_recordingHeightController != null)
+		{
+			if (_recordingGhostTransform == null)
+			{
+				Debug.LogError("PointPlacementManager: Recording Ghost Transform not assigned! Please assign it in the Inspector.");
+			}
+			else
+			{
+				_recordingHeightController.SetRecordingGhostTransform(_recordingGhostTransform, _recordingGhostRenderer);
+				_recordingHeightController.SetEnvironmentLayer(_environmentLayer);
+				Debug.Log($"PointPlacementManager: Recording height controller initialized with ghost at {_recordingGhostTransform.position}");
+			}
+		}
+
+		// Initially hide anchor ghost
+		if (_anchorGhostTransform != null)
+		{
+			_anchorGhostTransform.gameObject.SetActive(false);
+		}
+		
+		// Safety check: make sure anchor and recording ghosts are different objects
+		if (_anchorGhostTransform != null && _recordingGhostTransform != null)
+		{
+			if (_anchorGhostTransform == _recordingGhostTransform)
+			{
+				Debug.LogError("ERROR: AnchorGhost and RecordingGhost are THE SAME object! They must be different. Please create two separate ghost objects.");
+			}
+			else
+			{
+				Debug.Log($"Ghosts configured correctly: Anchor={_anchorGhostTransform.name}, Recording={_recordingGhostTransform.name}");
+			}
+		}
+	}
 
 	/// <summary>
 	/// Place a new point at the current ghost position and register it.
+	/// For Record360 waypoints, this initiates the two-step placement process.
 	/// </summary>
 	public void PlaceAtCurrentGhost()
 	{
@@ -168,63 +276,327 @@ namespace Points
 			Debug.LogWarning("PointPlacementManager: Missing ghost transform or point handle prefab.");
 			return;
 		}
+
+		// Record360 Feature: Handle two-step placement
+		if (_currentTypeSelection == WaypointType.Record360)
+		{
+			HandleRecord360Placement();
+			return;
+		}
+
+		// Standard placement for non-Record360 waypoints
+		PlaceStandardWaypoint();
+	}
+
+	/// <summary>
+	/// Handle the two-step placement flow for Record360 waypoints.
+	/// </summary>
+	private void HandleRecord360Placement()
+	{
+		if (_recordPlacementState == RecordPlacementState.None)
+		{
+			// Step 1: Place anchor point
+			Vector3 anchorPosition = _ghostTransform.position;
+			var experimentManager = Experiment.ExperimentDataManager.Instance;
+
+			// Check collision for anchor point
+			if (CheckGhostCollisionWithObstacles())
+			{
+				Debug.LogWarning("PointPlacementManager: Cannot place anchor point in collision zone.");
+				if (experimentManager != null)
+				{
+					experimentManager.OnPlacementBlocked(anchorPosition, "NoFlyZone");
+				}
+				return;
+			}
+
+		// Store anchor position and yaw
+		_pendingAnchorPosition = anchorPosition;
+		_pendingAnchorYaw = _rightHandRayOrigin != null ? _rightHandRayOrigin.eulerAngles.y : 0f;
+
+		// Show anchor ghost at the anchor position (keep current color)
+		if (_anchorGhostTransform != null)
+		{
+			_anchorGhostTransform.position = anchorPosition;
+			_anchorGhostTransform.gameObject.SetActive(true);
+			Debug.LogError($"AnchorGhost shown at {anchorPosition}, Active={_anchorGhostTransform.gameObject.activeSelf}");
+		}
+		else
+		{
+			Debug.LogError("ERROR: AnchorGhost transform is NULL! Not assigned in Inspector!");
+		}
+
+		// Activate recording height controller
+		_recordPlacementState = RecordPlacementState.AdjustingHeight;
+		if (_recordingHeightController != null)
+		{
+			_recordingHeightController.ActivateAt(anchorPosition);
+		}
+
+		// Hide the main ghost while adjusting height
+		if (_ghostTransform != null)
+		{
+			_ghostTransform.gameObject.SetActive(false);
+		}
+
+		Debug.Log($"Record360 Anchor placed at {anchorPosition}. Adjust recording height and press Enter to confirm.");
+		}
+		else if (_recordPlacementState == RecordPlacementState.AdjustingHeight)
+		{
+			// Step 2: Confirm recording height and create waypoint
+			ConfirmRecord360Placement();
+		}
+	}
+
+	/// <summary>
+	/// Confirm the Record360 placement with both anchor and recording positions.
+	/// </summary>
+	private void ConfirmRecord360Placement()
+	{
+		if (_recordingHeightController == null)
+		{
+			Debug.LogError("PointPlacementManager: Recording height controller not found!");
+			CancelRecord360Placement();
+			return;
+		}
+
+		Vector3 recordingPosition = _recordingHeightController.RecordingPosition;
+		int id = _nextId++;
+
+		// Create the point handle at the anchor position
+		Color color = WaypointTypeDefinition.GetTypeColor(WaypointType.Record360);
+		float radius = _placedPointRadius;
+
+		Transform parent = _pointsParent != null ? _pointsParent : transform;
+		PointHandle handle = Instantiate(_pointHandlePrefab, _pendingAnchorPosition, Quaternion.identity, parent);
+		handle.Initialize(id, color, radius, this, WaypointType.Record360);
+
+		// Set the recording position on the handle
+		handle.SetRecordingPosition(recordingPosition);
 		
+		// Create a PERMANENT copy of the anchor ghost for this waypoint
+		if (_anchorGhostTransform != null)
+		{
+			GameObject anchorCopy = Instantiate(_anchorGhostTransform.gameObject, _pendingAnchorPosition, Quaternion.identity, handle.transform);
+			anchorCopy.name = $"AnchorVisual_{id}";
+			anchorCopy.SetActive(true);
+			
+			// Make sure it's visible
+			Renderer[] renderers = anchorCopy.GetComponentsInChildren<Renderer>(true);
+			foreach (Renderer r in renderers)
+			{
+				r.enabled = true;
+				r.gameObject.SetActive(true);
+			}
+			
+			Debug.Log($"Created permanent anchor visual copy for waypoint {id}");
+		}
+		
+		Debug.Log($"PointHandle {id} created at {_pendingAnchorPosition}");
+
+		// Store in data structures
+		var data = new PointData
+		{
+			Id = id,
+			Position = _pendingAnchorPosition,
+			Color = color,
+			Radius = radius,
+			CreatedAt = DateTime.UtcNow,
+			Type = WaypointType.Record360,
+			YawDegrees = _pendingAnchorYaw,
+			Parameters = WaypointTypeDefinition.GetDefaultParameters(WaypointType.Record360)
+		};
+
+		// Store recording height in parameters
+		data.Parameters["recording_height"] = recordingPosition.y;
+		data.Parameters["recording_position"] = recordingPosition;
+
+		_points.Add(data);
+		_idToHandle[id] = handle;
+
+		OnPointPlaced?.Invoke(data);
+
+		// Notify experiment tracker
+		var experimentManager = Experiment.ExperimentDataManager.Instance;
+		if (experimentManager != null)
+		{
+			experimentManager.OnWaypointPlaced(_pendingAnchorPosition, ConvertToPointType(WaypointType.Record360), _pendingAnchorYaw);
+		}
+
+		// Deactivate recording height controller (this hides vertical line and recording ghost)
+		_recordingHeightController.SetActive(false);
+
+		// Hide the ORIGINAL anchor ghost (a permanent copy was created for this waypoint)
+		if (_anchorGhostTransform != null)
+		{
+			_anchorGhostTransform.gameObject.SetActive(false);
+			Debug.Log("Original AnchorGhost hidden, permanent copy created for waypoint");
+		}
+
+		// Create a visual indicator at recording position
+		CreateRecordingPositionIndicator(handle, recordingPosition);
+
+		// Show the main ghost again for placing more waypoints
+		if (_ghostTransform != null)
+		{
+			_ghostTransform.gameObject.SetActive(true);
+		}
+
+		// Reset state
+		_recordPlacementState = RecordPlacementState.None;
+
+		Debug.Log($"Record360 waypoint placed: Anchor={_pendingAnchorPosition}, Recording={recordingPosition}. AnchorGhost MUST be visible!");
+	}
+
+	/// <summary>
+	/// Cancel the Record360 placement process.
+	/// </summary>
+	public void CancelRecord360Placement()
+	{
+		if (_recordPlacementState == RecordPlacementState.None) return;
+
+		// Deactivate recording height controller
+		if (_recordingHeightController != null)
+		{
+			_recordingHeightController.SetActive(false);
+		}
+
+		// Hide anchor ghost
+		if (_anchorGhostTransform != null)
+		{
+			_anchorGhostTransform.gameObject.SetActive(false);
+		}
+
+		// Show the main ghost again
+		if (_ghostTransform != null)
+		{
+			_ghostTransform.gameObject.SetActive(true);
+		}
+
+		// Reset state
+		_recordPlacementState = RecordPlacementState.None;
+
+		Debug.Log("Record360 placement cancelled.");
+	}
+
+	/// <summary>
+	/// Create a visual indicator showing the recording position and connection to anchor.
+	/// </summary>
+	private void CreateRecordingPositionIndicator(PointHandle anchorHandle, Vector3 recordingPosition)
+	{
+		if (anchorHandle == null) return;
+
+		// Create a small sphere at recording position
+		GameObject recordingSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+		recordingSphere.name = $"RecordingPoint_{anchorHandle.Id}";
+		recordingSphere.transform.position = recordingPosition;
+		recordingSphere.transform.localScale = Vector3.one * (_placedPointRadius * 0.6f); // Smaller than anchor
+		recordingSphere.transform.SetParent(anchorHandle.transform);
+
+		// Set bright red color (brighter than anchor)
+		Renderer sphereRenderer = recordingSphere.GetComponent<Renderer>();
+		if (sphereRenderer != null)
+		{
+			Color brightRed = WaypointTypeDefinition.GetTypeColor(WaypointType.Record360); // Original bright red
+			foreach (var mat in sphereRenderer.materials)
+			{
+				if (mat != null && mat.HasProperty("_Color"))
+				{
+					mat.color = brightRed;
+				}
+			}
+		}
+
+		// Remove collider so it doesn't interfere with raycasts
+		Collider sphereCollider = recordingSphere.GetComponent<Collider>();
+		if (sphereCollider != null)
+		{
+			Destroy(sphereCollider);
+		}
+
+		// Create a thin grey line connecting anchor to recording point
+		GameObject lineObj = new GameObject($"RecordingLine_{anchorHandle.Id}");
+		lineObj.transform.SetParent(anchorHandle.transform);
+		LineRenderer line = lineObj.AddComponent<LineRenderer>();
+		
+		line.useWorldSpace = true;
+		line.positionCount = 2;
+		line.SetPosition(0, anchorHandle.transform.position);
+		line.SetPosition(1, recordingPosition);
+		line.startWidth = 0.01f; // 1cm thin line
+		line.endWidth = 0.01f;
+		line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+		line.receiveShadows = false;
+
+		// Create grey material for line
+		Material lineMat = new Material(Shader.Find("Sprites/Default"));
+		lineMat.color = new Color(0.5f, 0.5f, 0.5f, 0.8f); // Grey, slightly transparent
+		line.material = lineMat;
+
+		Debug.Log($"Created recording position indicator: Anchor={anchorHandle.transform.position}, Recording={recordingPosition}");
+	}
+
+	/// <summary>
+	/// Place a standard (non-Record360) waypoint.
+	/// </summary>
+	private void PlaceStandardWaypoint()
+	{
 		Vector3 position = _ghostTransform.position;
 		var experimentManager = Experiment.ExperimentDataManager.Instance;
-		
+
 		// Thesis Feature: Prevent placement in collision zones
 		if (CheckGhostCollisionWithObstacles())
 		{
 			Debug.LogWarning("PointPlacementManager: Cannot place waypoint in collision zone (too close to obstacle).");
-			
+
 			// Thesis Feature: Notify experiment tracker
 			if (experimentManager != null)
 			{
 				experimentManager.OnPlacementBlocked(position, "NoFlyZone");
 			}
-			
+
 			return;
 		}
 
 		int id = _nextId++;
-			
-			// Thesis Feature: Use type-specific color
-			Color color = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
-			float radius = _placedPointRadius;
 
-			PointHandle handle = Instantiate(_pointHandlePrefab, position, Quaternion.identity, _pointsParent != null ? _pointsParent : transform);
-			handle.Initialize(id, color, radius, this, _currentTypeSelection); // Pass type directly
+		// Thesis Feature: Use type-specific color
+		Color color = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
+		float radius = _placedPointRadius;
 
-			// Thesis Feature: Calculate yaw from right controller forward direction
-			float yaw = 0f;
-			if (_rightHandRayOrigin != null)
-			{
-				yaw = _rightHandRayOrigin.eulerAngles.y;
-			}
+		PointHandle handle = Instantiate(_pointHandlePrefab, position, Quaternion.identity, _pointsParent != null ? _pointsParent : transform);
+		handle.Initialize(id, color, radius, this, _currentTypeSelection); // Pass type directly
 
-			var data = new PointData
-			{
-				Id = id,
-				Position = position,
-				Color = color,
-				Radius = radius,
-				CreatedAt = DateTime.UtcNow,
-				Type = _currentTypeSelection,
-				YawDegrees = yaw,
-				Parameters = WaypointTypeDefinition.GetDefaultParameters(_currentTypeSelection)
-			};
-
-			_points.Add(data);
-			_idToHandle[id] = handle;
-
-			OnPointPlaced?.Invoke(data);
-			
-			// Thesis Feature: Notify experiment tracker
-			if (experimentManager != null)
-			{
-				experimentManager.OnWaypointPlaced(position, ConvertToPointType(_currentTypeSelection), yaw);
-			}
+		// Thesis Feature: Calculate yaw from right controller forward direction
+		float yaw = 0f;
+		if (_rightHandRayOrigin != null)
+		{
+			yaw = _rightHandRayOrigin.eulerAngles.y;
 		}
+
+		var data = new PointData
+		{
+			Id = id,
+			Position = position,
+			Color = color,
+			Radius = radius,
+			CreatedAt = DateTime.UtcNow,
+			Type = _currentTypeSelection,
+			YawDegrees = yaw,
+			Parameters = WaypointTypeDefinition.GetDefaultParameters(_currentTypeSelection)
+		};
+
+		_points.Add(data);
+		_idToHandle[id] = handle;
+
+		OnPointPlaced?.Invoke(data);
+
+		// Thesis Feature: Notify experiment tracker
+		if (experimentManager != null)
+		{
+			experimentManager.OnWaypointPlaced(position, ConvertToPointType(_currentTypeSelection), yaw);
+		}
+	}
 
 		/// <summary>
 		/// Undo (remove) the most recently placed point, if any.

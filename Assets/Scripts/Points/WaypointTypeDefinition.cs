@@ -57,8 +57,8 @@ namespace Points
 				case WaypointType.StopRotateContinue:
 					return HexToColor("38FF00"); // Bright green - stop & rotate
 				
-				case WaypointType.Record360:
-					return HexToColor("F74429"); // Orange-red - 360° recording
+			case WaypointType.Record360:
+				return HexToColor("C21807"); // Darker red - 360° recording
 				
 				default:
 					return Color.white;

@@ -142,76 +142,96 @@ namespace Points
 				_nextRepeatTimeB = Time.time + _repeatDelay;
 			}
 
-			Vector3 origin = _rightControllerTransform.position;
-			Vector3 dir = _rightControllerTransform.forward;
+	Vector3 origin = _rightControllerTransform.position;
+	Vector3 dir = _rightControllerTransform.forward;
 
-			// DISABLED: Left grip for surface snapping to avoid conflicts
-			// bool leftGrip = ReadButton(_leftHand, CommonUsages.gripButton);
-			// bool useSnap = _manager.SurfaceSnappingEnabled && !leftGrip;
-			bool useSnap = _manager.SurfaceSnappingEnabled;
-			bool snapped = false;
-			Vector3 ghostPos = origin + dir * _currentDepth;
-			if (useSnap)
+	// Calculate validity outside the conditional blocks so it's accessible everywhere
+	bool valid = _currentDepth >= _manager.MinDepth && _currentDepth <= _manager.MaxDepth;
+
+	// Record360 Feature: Update recording point if adjusting height
+	if (_manager.IsAdjustingRecordingHeight)
+	{
+		_manager.UpdateRecordingPointFromRay(origin, dir);
+	}
+	else
+	{
+		// Normal ghost positioning
+		// DISABLED: Left grip for surface snapping to avoid conflicts
+		// bool leftGrip = ReadButton(_leftHand, CommonUsages.gripButton);
+		// bool useSnap = _manager.SurfaceSnappingEnabled && !leftGrip;
+		bool useSnap = _manager.SurfaceSnappingEnabled;
+		bool snapped = false;
+		Vector3 ghostPos = origin + dir * _currentDepth;
+		if (useSnap)
+		{
+			RaycastHit hit;
+			// Thesis Feature: Use UI-excluded mask for surface snapping
+			if (Physics.Raycast(origin, dir, out hit, _currentDepth + 0.01f, _surfaceRaycastMask, QueryTriggerInteraction.Ignore))
 			{
-				RaycastHit hit;
-				// Thesis Feature: Use UI-excluded mask for surface snapping
-				if (Physics.Raycast(origin, dir, out hit, _currentDepth + 0.01f, _surfaceRaycastMask, QueryTriggerInteraction.Ignore))
-				{
-					ghostPos = hit.point;
-					snapped = true;
-				}
-			}
-
-			_ghostTransform.position = ghostPos;
-			bool valid = _currentDepth >= _manager.MinDepth && _currentDepth <= _manager.MaxDepth;
-			_manager.UpdateGhostVisualValidity(valid && (!useSnap || snapped || Mathf.Abs(_currentDepth - Mathf.Clamp(_currentDepth, _manager.MinDepth, _manager.MaxDepth)) < 0.0001f));
-			_manager.UpdateReadout($"{_currentDepth:F2} m");
-
-			if (_rayLine != null)
-			{
-				_rayLine.positionCount = 2;
-				_rayLine.SetPosition(0, origin);
-				// Make ray extend far into the distance (100m = essentially infinite for VR)
-				_rayLine.SetPosition(1, origin + dir * 100f);
-			}
-
-			// Handle right trigger for point placement
-			bool trigger = ReadButton(_rightHand, CommonUsages.triggerButton);
-			if (EdgePressed(trigger, ref _triggerPrev))
-			{
-				// Thesis Feature: Check if ray is hitting UI first - if so, don't place point
-				if (IsRayHittingUI(origin, dir))
-				{
-					Debug.Log("RayDepthController: Ray hitting UI, skipping point placement");
-					return; // Don't place point if we're clicking UI
-				}
-				
-				if (valid)
-				{
-					// Check if we're in path mode
-					if (_pathManager != null && _pathManager.PathModeEnabled)
-					{
-						// Path mode is handled by PathModeController - do nothing here
-						// This prevents duplicate handling
-					}
-					else
-					{
-						// Normal point placement mode
-						_manager.PlaceAtCurrentGhost();
-						_manager.ConfirmHaptics();
-						StopAllCoroutines();
-						StartCoroutine(FadeReadoutRoutine());
-					}
-				}
-			}
-
-			// Handle left trigger for point removal
-			bool leftTrigger = ReadButton(_leftHand, CommonUsages.triggerButton);
-			if (EdgePressed(leftTrigger, ref _leftTriggerPrev))
-			{
-				HandlePointRemoval();
+				ghostPos = hit.point;
+				snapped = true;
 			}
 		}
+
+		_ghostTransform.position = ghostPos;
+		_manager.UpdateGhostVisualValidity(valid && (!useSnap || snapped || Mathf.Abs(_currentDepth - Mathf.Clamp(_currentDepth, _manager.MinDepth, _manager.MaxDepth)) < 0.0001f));
+	}
+
+	_manager.UpdateReadout($"{_currentDepth:F2} m");
+
+	if (_rayLine != null)
+	{
+		_rayLine.positionCount = 2;
+		_rayLine.SetPosition(0, origin);
+		// Make ray extend far into the distance (100m = essentially infinite for VR)
+		_rayLine.SetPosition(1, origin + dir * 100f);
+	}
+
+	// Handle right trigger for point placement
+	bool trigger = ReadButton(_rightHand, CommonUsages.triggerButton);
+	if (EdgePressed(trigger, ref _triggerPrev))
+	{
+		// Record360 Feature: If adjusting recording height, confirm placement
+		if (_manager.IsAdjustingRecordingHeight)
+		{
+			_manager.PlaceAtCurrentGhost(); // Confirms the Record360 placement
+			_manager.ConfirmHaptics();
+			return;
+		}
+
+		// Thesis Feature: Check if ray is hitting UI first - if so, don't place point
+		if (IsRayHittingUI(origin, dir))
+		{
+			Debug.Log("RayDepthController: Ray hitting UI, skipping point placement");
+			return; // Don't place point if we're clicking UI
+		}
+		
+		if (valid)
+		{
+			// Check if we're in path mode
+			if (_pathManager != null && _pathManager.PathModeEnabled)
+			{
+				// Path mode is handled by PathModeController - do nothing here
+				// This prevents duplicate handling
+			}
+			else
+			{
+				// Normal point placement mode (includes step 1 of Record360)
+				_manager.PlaceAtCurrentGhost();
+				_manager.ConfirmHaptics();
+				StopAllCoroutines();
+				StartCoroutine(FadeReadoutRoutine());
+			}
+		}
+	}
+
+	// Handle left trigger for point removal
+	bool leftTrigger = ReadButton(_leftHand, CommonUsages.triggerButton);
+	if (EdgePressed(leftTrigger, ref _leftTriggerPrev))
+	{
+		HandlePointRemoval();
+	}
+}
 
 		private IEnumerator FadeReadoutRoutine()
 		{
