@@ -26,15 +26,19 @@ namespace Points
 		[SerializeField] private int _maxLineSegments = 1000;
 		[SerializeField] private bool _useObjectPooling = true;
 
-		private FlightPathManager _pathManager;
-		private readonly List<LineRenderer> _activeLineRenderers = new List<LineRenderer>();
-		private readonly List<GameObject> _activeBadges = new List<GameObject>();
-		private readonly List<GameObject> _activeArrows = new List<GameObject>();
-		private readonly Queue<LineRenderer> _lineRendererPool = new Queue<LineRenderer>();
-		private readonly Queue<GameObject> _badgePool = new Queue<GameObject>();
-		private readonly Queue<GameObject> _arrowPool = new Queue<GameObject>();
-		private Transform _linesParent;
-		private Transform _badgesParent;
+	private FlightPathManager _pathManager;
+	private readonly List<LineRenderer> _activeLineRenderers = new List<LineRenderer>();
+	private readonly List<GameObject> _activeBadges = new List<GameObject>();
+	private readonly List<GameObject> _activeArrows = new List<GameObject>();
+	private readonly Queue<LineRenderer> _lineRendererPool = new Queue<LineRenderer>();
+	private readonly Queue<GameObject> _badgePool = new Queue<GameObject>();
+	private readonly Queue<GameObject> _arrowPool = new Queue<GameObject>();
+	private Transform _linesParent;
+	private Transform _badgesParent;
+	
+	// Constants for Start/End point IDs (must match FlightPathManager)
+	private const int START_POINT_ID = -1;
+	private const int END_POINT_ID = -2;
 
 		/// <summary>
 		/// Width of path lines in meters.
@@ -123,30 +127,31 @@ namespace Points
 			var currentSegment = new List<Vector3>();
 			foreach (int pointId in path.PointIds)
 			{
-				// Treat non-positive IDs as explicit breaks between segments
-				if (pointId <= 0)
+			// Treat ID == 0 as explicit breaks between segments
+			if (pointId == 0)
+			{
+				if (currentSegment.Count >= 2)
 				{
-					if (currentSegment.Count >= 2)
-					{
-						RenderPathLine(currentSegment, path.PathColor);
-					}
-					currentSegment.Clear();
-					continue;
+					RenderPathLine(currentSegment, path.PathColor);
 				}
+				currentSegment.Clear();
+				continue;
+			}
 
-				var handle = pointManager.GetPoint(pointId);
-				if (handle == null)
+			// Get position (handles Start/End points and regular waypoints)
+			Vector3? position = GetPointPosition(pointId, pointManager);
+			if (!position.HasValue)
+			{
+				// Missing point: end current segment
+				if (currentSegment.Count >= 2)
 				{
-					// Missing point: end current segment
-					if (currentSegment.Count >= 2)
-					{
-						RenderPathLine(currentSegment, path.PathColor);
-					}
-					currentSegment.Clear();
-					continue;
+					RenderPathLine(currentSegment, path.PathColor);
 				}
+				currentSegment.Clear();
+				continue;
+			}
 
-				currentSegment.Add(handle.transform.position);
+			currentSegment.Add(position.Value);
 			}
 
 			if (currentSegment.Count >= 2)
@@ -154,8 +159,8 @@ namespace Points
 				RenderPathLine(currentSegment, path.PathColor);
 			}
 
-			// Render large point badges above points for easy visibility
-			RenderPointBadges(path, pointManager);
+			// Note: Point badges are rendered by PointHandle and StartEndPoint components themselves
+			// RenderPointBadges(path, pointManager); // DISABLED - causes duplicate badges
 		}
 
 		/// <summary>
@@ -168,25 +173,25 @@ namespace Points
 			ClearActiveArrows();
 		}
 
-		/// <summary>
-		/// Update the rendering of the currently active route.
-		/// </summary>
-		public void UpdateActiveRoute()
+	/// <summary>
+	/// Update the rendering of the currently active route.
+	/// </summary>
+	public void UpdateActiveRoute()
+	{
+		if (_pathManager == null) return;
+
+		var activeRoute = _pathManager.GetActiveRoute();
+		var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
+		
+		// Clear first so removed segments disappear before re-rendering
+		ClearAllPaths();
+
+		if (_pathManager.PathModeEnabled && activeRoute != null)
 		{
-			if (_pathManager == null) return;
-
-			var activeRoute = _pathManager.GetActiveRoute();
-			var pointManager = UnityEngine.Object.FindFirstObjectByType<PointPlacementManager>();
-			
-			// Clear first so removed segments disappear before re-rendering
-			ClearAllPaths();
-
-			if (_pathManager.PathModeEnabled && activeRoute != null)
-			{
-				// In path mode: render all completed routes + active route
-				RenderAllCompletedRoutes();
-				RenderPath(activeRoute, pointManager);
-			}
+			// In path mode: render all completed routes + active route
+			RenderAllCompletedRoutes();
+			RenderPath(activeRoute, pointManager);
+		}
 			else
 			{
 				// Not in path mode: render all completed routes
@@ -291,18 +296,20 @@ namespace Points
 			return Sprite.Create(texture, new Rect(0, 0, 32, 32), new Vector2(0.5f, 0.5f));
 		}
 
-		private List<Vector3> GetPathPositions(FlightPath path, PointPlacementManager pointManager)
+	private List<Vector3> GetPathPositions(FlightPath path, PointPlacementManager pointManager)
+	{
+		var positions = new List<Vector3>();
+		
+		foreach (int pointId in path.PointIds)
 		{
-			var positions = new List<Vector3>();
+			if (pointId == 0) continue; // Skip explicit breaks
 			
-			foreach (int pointId in path.PointIds)
+			Vector3? position = GetPointPosition(pointId, pointManager);
+			if (position.HasValue)
 			{
-				var pointHandle = pointManager.GetPoint(pointId);
-				if (pointHandle != null)
-				{
-					positions.Add(pointHandle.transform.position);
-				}
+				positions.Add(position.Value);
 			}
+		}
 
 			// Add closed loop connection if needed
 			if (path.IsClosed && positions.Count >= 3)
@@ -412,19 +419,26 @@ namespace Points
 			}
 		}
 
-		private void RenderPointBadges(FlightPath path, PointPlacementManager pointManager)
+	private void RenderPointBadges(FlightPath path, PointPlacementManager pointManager)
+	{
+		// Continuous numbering: Start=1, waypoints=2,3,4..., End=last number
+		int continuousIndex = 0;
+		foreach (int pointId in path.PointIds)
 		{
-			// Continuous numbering ignoring gaps/break markers and missing points
-			int continuousIndex = GetContinuousRouteStartIndex(path);
-			foreach (int pointId in path.PointIds)
-			{
-				if (pointId <= 0) continue; // skip explicit breaks
-				var pointHandle = pointManager.GetPoint(pointId);
-				if (pointHandle == null) continue;
-				continuousIndex++;
-				CreatePointBadge(pointHandle.transform.position, continuousIndex.ToString(), path.PathColor);
-			}
+			if (pointId == 0) continue; // skip explicit breaks
+			
+			Vector3? position = GetPointPosition(pointId, pointManager);
+			if (!position.HasValue) continue;
+			
+			// Increment index for each point
+			continuousIndex++;
+			
+			// Determine badge label
+			string label = continuousIndex.ToString();
+			
+			CreatePointBadge(position.Value, label, path.PathColor);
 		}
+	}
 
 		/// <summary>
 		/// Get the starting index for numbering. Thesis Feature: Always 0 for single route.
@@ -602,13 +616,35 @@ namespace Points
 			}
 		}
 
-		/// <summary>
-		/// Thesis Feature: Handle route being cleared (from waypoint deletion).
-		/// </summary>
-		private void HandleRouteCleared(FlightPath route)
-		{
-			Debug.Log("PathRenderer: Route cleared, removing all visual paths");
-			ClearAllPaths();
-		}
+	/// <summary>
+	/// Thesis Feature: Handle route being cleared (from waypoint deletion).
+	/// </summary>
+	private void HandleRouteCleared(FlightPath route)
+	{
+		Debug.Log("PathRenderer: Route cleared, removing all visual paths");
+		ClearAllPaths();
 	}
+
+	/// <summary>
+	/// Get the world position for any point ID (including Start/End points).
+	/// </summary>
+	private Vector3? GetPointPosition(int pointId, PointPlacementManager pointManager)
+	{
+		// Handle Start/End points
+		if (pointId == START_POINT_ID)
+		{
+			var startPoint = _pathManager?.GetStartPoint();
+			return startPoint != null ? startPoint.Position : (Vector3?)null;
+		}
+		if (pointId == END_POINT_ID)
+		{
+			var endPoint = _pathManager?.GetEndPoint();
+			return endPoint != null ? endPoint.Position : (Vector3?)null;
+		}
+
+		// Handle regular waypoints
+		var handle = pointManager?.GetPoint(pointId);
+		return handle != null ? handle.transform.position : (Vector3?)null;
+	}
+}
 }

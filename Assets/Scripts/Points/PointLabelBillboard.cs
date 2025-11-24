@@ -5,10 +5,12 @@ namespace Points
 {
 	/// <summary>
 	/// Simple billboard text that faces the main camera and can fade out.
+	/// Supports both TextMesh and TextMeshPro.
 	/// </summary>
 	public class PointLabelBillboard : MonoBehaviour
 	{
 		[SerializeField] private TextMesh _textMesh;
+		[SerializeField] private TMPro.TextMeshPro _textMeshPro;
 		[SerializeField] private float _fadeDuration = 0.35f;
 
 		private Coroutine _fadeRoutine;
@@ -20,26 +22,40 @@ namespace Points
 		{
 			_textMesh = GetComponent<TextMesh>();
 		}
+		
+		// Auto-wire TextMeshPro if not assigned
+		if (_textMeshPro == null)
+		{
+			_textMeshPro = GetComponent<TMPro.TextMeshPro>();
+		}
 	}
 
-		/// <summary>
-		/// Set the displayed text.
-		/// </summary>
-		public void SetText(string text)
+	/// <summary>
+	/// Set the displayed text.
+	/// </summary>
+	public void SetText(string text)
+	{
+		// Stop any fade routine
+		if (_fadeRoutine != null)
 		{
-			if (_textMesh != null)
-			{
-				// If we were fading out, stop and restore full alpha so the label shows again
-				if (_fadeRoutine != null)
-				{
-					StopCoroutine(_fadeRoutine);
-					_fadeRoutine = null;
-				}
-				var c = _textMesh.color;
-				_textMesh.color = new Color(c.r, c.g, c.b, 1f);
-				_textMesh.text = text;
-			}
+			StopCoroutine(_fadeRoutine);
+			_fadeRoutine = null;
 		}
+		
+		if (_textMesh != null)
+		{
+			var c = _textMesh.color;
+			_textMesh.color = new Color(c.r, c.g, c.b, 1f);
+			_textMesh.text = text;
+		}
+		
+		if (_textMeshPro != null)
+		{
+			var c = _textMeshPro.color;
+			_textMeshPro.color = new Color(c.r, c.g, c.b, 1f);
+			_textMeshPro.text = text;
+		}
+	}
 
 		private void LateUpdate()
 		{
@@ -60,19 +76,43 @@ namespace Points
 			_fadeRoutine = StartCoroutine(FadeRoutine());
 		}
 
-		private IEnumerator FadeRoutine()
+	private IEnumerator FadeRoutine()
+	{
+		Color startColor = Color.white;
+		
+		if (_textMesh != null)
 		{
-			if (_textMesh == null) yield break;
-			Color start = _textMesh.color;
-			float t = 0f;
-			while (t < _fadeDuration)
-			{
-				t += Time.deltaTime;
-				float a = Mathf.Lerp(start.a, 0f, Mathf.Clamp01(t / _fadeDuration));
-				_textMesh.color = new Color(start.r, start.g, start.b, a);
-				yield return null;
-			}
+			startColor = _textMesh.color;
 		}
+		else if (_textMeshPro != null)
+		{
+			startColor = _textMeshPro.color;
+		}
+		else
+		{
+			yield break;
+		}
+		
+		float t = 0f;
+		while (t < _fadeDuration)
+		{
+			t += Time.deltaTime;
+			float a = Mathf.Lerp(startColor.a, 0f, Mathf.Clamp01(t / _fadeDuration));
+			Color newColor = new Color(startColor.r, startColor.g, startColor.b, a);
+			
+			if (_textMesh != null)
+			{
+				_textMesh.color = newColor;
+			}
+			
+			if (_textMeshPro != null)
+			{
+				_textMeshPro.color = newColor;
+			}
+			
+			yield return null;
+		}
+	}
 	}
 }
 

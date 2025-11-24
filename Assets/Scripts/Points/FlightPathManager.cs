@@ -21,10 +21,17 @@ namespace Points
 		public event Action<FlightPath> OnActiveRouteChanged;
 		public event Action<FlightPath, int> OnPointAddedToRoute;
 		public event Action<FlightPath> OnRouteCleared;
+		public event Action<string> OnPathValidationError; // New: For displaying error messages
 
 		// Thesis Feature: Simplified to single route management
 		private FlightPath _currentRoute;
 		private FlightPath _completedRoute; // Store last completed route for reference
+
+		// Start/End point tracking
+		private StartEndPoint _startPoint;
+		private StartEndPoint _endPoint;
+		private const int START_POINT_ID = -1;
+		private const int END_POINT_ID = -2;
 
 		/// <summary>
 		/// Whether path building mode is currently active.
@@ -81,18 +88,21 @@ namespace Points
 			}
 		}
 
-		private void Start()
+	private void Start()
+	{
+		if (_pointManager != null)
 		{
-			if (_pointManager != null)
-			{
-				_pointManager.OnPointSelected += HandlePointSelected;
-			}
-
-			if (_pathRenderer != null)
-			{
-				_pathRenderer.Initialize(this);
-			}
+			_pointManager.OnPointSelected += HandlePointSelected;
 		}
+
+		if (_pathRenderer != null)
+		{
+			_pathRenderer.Initialize(this);
+		}
+
+		// Find and register Start/End points in the scene
+		RegisterStartEndPoints();
+	}
 
 		private void OnDestroy()
 		{
@@ -390,6 +400,139 @@ namespace Points
 				PointCount = route.PointCount
 			};
 		}
+
+		#region Start/End Point Management
+
+		/// <summary>
+		/// Find and register Start/End points in the scene.
+		/// </summary>
+		private void RegisterStartEndPoints()
+		{
+			StartEndPoint[] points = UnityEngine.Object.FindObjectsByType<StartEndPoint>(FindObjectsSortMode.None);
+
+			foreach (var point in points)
+			{
+				if (point.Type == StartEndPoint.PointType.Start)
+				{
+					if (_startPoint != null)
+					{
+						Debug.LogWarning("Multiple Start points found in scene. Using the first one.");
+						continue;
+					}
+					_startPoint = point;
+					_startPoint.Register(START_POINT_ID);
+				}
+				else if (point.Type == StartEndPoint.PointType.End)
+				{
+					if (_endPoint != null)
+					{
+						Debug.LogWarning("Multiple End points found in scene. Using the first one.");
+						continue;
+					}
+					_endPoint = point;
+					_endPoint.Register(END_POINT_ID);
+				}
+			}
+
+			if (_startPoint == null)
+			{
+				Debug.LogWarning("No Start point found in scene. Path validation will be disabled.");
+			}
+			if (_endPoint == null)
+			{
+				Debug.LogWarning("No End point found in scene. Path validation will be disabled.");
+			}
+		}
+
+		/// <summary>
+		/// Check if a segment can be created between two points based on Start/End validation rules.
+		/// </summary>
+		/// <returns>True if segment is valid, false otherwise (with error message via event)</returns>
+		public bool CanCreateSegment(int fromPointId, int toPointId)
+		{
+			// If no Start/End points are configured, allow all segments
+			if (_startPoint == null || _endPoint == null)
+			{
+				return true;
+			}
+
+			var route = GetActiveRoute();
+
+		// Rule 1: First point MUST be Start point
+		if (route == null || route.IsEmpty)
+		{
+			if (fromPointId != START_POINT_ID)
+			{
+				OnPathValidationError?.Invoke("Path must start at Start point");
+				return false;
+			}
+		}
+
+		// Rule 2: Cannot connect TO Start point (it's only a starting point)
+		if (toPointId == START_POINT_ID)
+		{
+			OnPathValidationError?.Invoke("Cannot connect to Start point");
+			return false;
+		}
+
+		// Rule 3: Cannot connect FROM End point (it's only an ending point)
+		if (fromPointId == END_POINT_ID)
+		{
+			OnPathValidationError?.Invoke("Cannot connect from End point");
+			return false;
+		}
+
+		// Rule 4: End point can only appear once in the route
+		if (toPointId == END_POINT_ID && route != null && route.ContainsPoint(END_POINT_ID))
+		{
+			OnPathValidationError?.Invoke("End point already in path");
+			return false;
+		}
+		
+		// Rule 5: Start point can only appear once in the route (at the beginning)
+		if (toPointId == START_POINT_ID && route != null && route.ContainsPoint(START_POINT_ID))
+		{
+			OnPathValidationError?.Invoke("Start point already in path");
+			return false;
+		}
+
+			return true;
+		}
+
+		/// <summary>
+		/// Validate that the current path is complete (Start → waypoints → End).
+		/// </summary>
+		public bool IsPathComplete()
+		{
+			if (_startPoint == null || _endPoint == null)
+			{
+				return true; // No validation if Start/End not configured
+			}
+
+			var route = GetActiveRoute();
+			if (route == null || route.IsEmpty)
+			{
+				return false;
+			}
+
+			// Check if path starts with Start and ends with End
+			bool startsWithStart = route.PointIds.Count > 0 && route.PointIds[0] == START_POINT_ID;
+			bool endsWithEnd = route.PointIds.Count > 0 && route.PointIds[route.PointIds.Count - 1] == END_POINT_ID;
+
+			return startsWithStart && endsWithEnd;
+		}
+
+		/// <summary>
+		/// Get the Start point (if registered).
+		/// </summary>
+		public StartEndPoint GetStartPoint() => _startPoint;
+
+		/// <summary>
+		/// Get the End point (if registered).
+		/// </summary>
+		public StartEndPoint GetEndPoint() => _endPoint;
+
+		#endregion
 	}
 
 	/// <summary>

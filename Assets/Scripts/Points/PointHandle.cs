@@ -65,6 +65,7 @@ namespace Points
 		_waypointType = type;
 		_color = WaypointTypeDefinition.GetTypeColor(_waypointType);
 		
+		// CreateLabel(); // DISABLED - causing random floating labels
 		CreateRouteBadge();
 		ApplyAppearance();
 		UpdateLabel();
@@ -218,41 +219,67 @@ namespace Points
 			UpdateRouteBadge(activeRoute);
 		}
 
-		/// <summary>
-		/// Create the route badge for displaying point order in routes.
-		/// </summary>
-		private void CreateRouteBadge()
-		{
-			if (_routeBadge != null) return;
+	/// <summary>
+	/// Create the floating label that shows the point ID.
+	/// </summary>
+	private void CreateLabel()
+	{
+		if (_label != null) return;
 
-			_routeBadge = new GameObject($"Route Badge {_id}");
-			_routeBadge.transform.SetParent(transform);
-			_routeBadge.transform.localPosition = Vector3.up * (_radius + 0.05f);
-			_routeBadge.transform.localScale = Vector3.one * 0.1f;
+		var labelObj = new GameObject($"Label {_id}");
+		labelObj.transform.SetParent(transform);
+		labelObj.transform.localPosition = Vector3.up * (_radius + 0.3f); // Above the point
+		labelObj.transform.localScale = Vector3.one * 0.05f;
 
-			_routeBadgeText = _routeBadge.AddComponent<TextMesh>();
-			_routeBadgeText.text = "";
-			_routeBadgeText.fontSize = 24;
-			_routeBadgeText.color = Color.white;
-			_routeBadgeText.anchor = TextAnchor.MiddleCenter;
-			_routeBadgeText.alignment = TextAlignment.Center;
+		var textMesh = labelObj.AddComponent<TextMesh>();
+		textMesh.text = $"#{_id}";
+		textMesh.fontSize = 32;
+		textMesh.color = Color.white;
+		textMesh.anchor = TextAnchor.MiddleCenter;
+		textMesh.alignment = TextAlignment.Center;
 
-			var meshRenderer = _routeBadge.GetComponent<MeshRenderer>();
-			meshRenderer.sortingOrder = 100;
+		var meshRenderer = labelObj.GetComponent<MeshRenderer>();
+		meshRenderer.sortingOrder = 100;
 
-			// Add background
-			var background = new GameObject("Badge Background");
-			background.transform.SetParent(_routeBadge.transform);
-			background.transform.localPosition = Vector3.zero;
-			background.transform.localScale = Vector3.one * 1.5f;
+		// Add billboard behavior so it always faces the camera
+		_label = labelObj.AddComponent<PointLabelBillboard>();
+	}
 
-			var bgRenderer = background.AddComponent<SpriteRenderer>();
-			bgRenderer.sprite = CreateCircleSprite();
-			bgRenderer.color = new Color(0, 0, 0, 0.8f);
-			bgRenderer.sortingOrder = 99;
+	/// <summary>
+	/// Create the route badge for displaying point order in routes.
+	/// </summary>
+	private void CreateRouteBadge()
+	{
+		if (_routeBadge != null) return;
 
-			_routeBadge.SetActive(false);
-		}
+		_routeBadge = new GameObject($"Route Badge {_id}");
+		_routeBadge.transform.SetParent(transform);
+		_routeBadge.transform.localPosition = Vector3.up * (_radius + 0.05f);
+		_routeBadge.transform.localScale = Vector3.one * 0.1f;
+
+		_routeBadgeText = _routeBadge.AddComponent<TextMesh>();
+		_routeBadgeText.text = "";
+		_routeBadgeText.fontSize = 24;
+		_routeBadgeText.color = Color.white;
+		_routeBadgeText.anchor = TextAnchor.MiddleCenter;
+		_routeBadgeText.alignment = TextAlignment.Center;
+
+		var meshRenderer = _routeBadge.GetComponent<MeshRenderer>();
+		meshRenderer.sortingOrder = 100;
+
+		// Add background
+		var background = new GameObject("Badge Background");
+		background.transform.SetParent(_routeBadge.transform);
+		background.transform.localPosition = Vector3.zero;
+		background.transform.localScale = Vector3.one * 1.5f;
+
+		var bgRenderer = background.AddComponent<SpriteRenderer>();
+		bgRenderer.sprite = CreateCircleSprite();
+		bgRenderer.color = new Color(0, 0, 0, 0.8f);
+		bgRenderer.sortingOrder = 99;
+
+		_routeBadge.SetActive(false);
+	}
 
 		/// <summary>
 		/// Create a simple circle sprite for the badge background.

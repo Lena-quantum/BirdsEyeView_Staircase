@@ -185,55 +185,92 @@ namespace Points
 			return route;
 		}
 
-		/// <summary>
-		/// Get valid waypoint positions, skipping gaps (pointId <= 0) and missing points.
-		/// </summary>
-		private List<WaypointSegment> GetValidWaypointSegments(FlightPath route)
+	/// <summary>
+	/// Get valid waypoint positions, skipping gaps (pointId == 0) and missing points.
+	/// Includes Start/End points (negative IDs).
+	/// </summary>
+	private List<WaypointSegment> GetValidWaypointSegments(FlightPath route)
+	{
+		var segments = new List<WaypointSegment>();
+
+		if (route == null || _pointManager == null) return segments;
+
+		// Build list of valid waypoints with their types
+		var validWaypoints = new List<WaypointSegment>();
+		foreach (int pointId in route.PointIds)
 		{
-			var segments = new List<WaypointSegment>();
+			// Skip only explicit gap markers (0)
+			if (pointId == 0) continue;
 
-			if (route == null || _pointManager == null) return segments;
-
-			// Build list of valid waypoints with their types
-			var validWaypoints = new List<WaypointSegment>();
-			foreach (int pointId in route.PointIds)
+			// Handle Start/End points (negative IDs)
+			if (pointId == -1) // Start point
 			{
-				// Skip gap markers (0 or negative IDs)
-				if (pointId <= 0) continue;
-
-				var pointHandle = _pointManager.GetPoint(pointId);
-				if (pointHandle == null) continue;
-
-				var segment = new WaypointSegment
+				var startPoint = _pathManager?.GetStartPoint();
+				if (startPoint != null)
 				{
-					PointId = pointId,
-					Position = pointHandle.transform.position + _droneOffset,
-					Type = pointHandle.WaypointType,
-					Yaw = pointHandle.transform.eulerAngles.y
-				};
-
-				validWaypoints.Add(segment);
+					var segment = new WaypointSegment
+					{
+						PointId = pointId,
+						Position = startPoint.Position + _droneOffset,
+						Type = WaypointType.Flythrough, // Start point - just a navigation point
+						Yaw = startPoint.transform.eulerAngles.y
+					};
+					validWaypoints.Add(segment);
+				}
+				continue;
+			}
+			
+			if (pointId == -2) // End point
+			{
+				var endPoint = _pathManager?.GetEndPoint();
+				if (endPoint != null)
+				{
+					var segment = new WaypointSegment
+					{
+						PointId = pointId,
+						Position = endPoint.Position + _droneOffset,
+						Type = WaypointType.Flythrough, // End point - just a navigation point
+						Yaw = endPoint.transform.eulerAngles.y
+					};
+					validWaypoints.Add(segment);
+				}
+				continue;
 			}
 
-			return validWaypoints;
+			// Handle regular waypoints (positive IDs)
+			var pointHandle = _pointManager.GetPoint(pointId);
+			if (pointHandle == null) continue;
+
+			var waypointSegment = new WaypointSegment
+			{
+				PointId = pointId,
+				Position = pointHandle.transform.position + _droneOffset,
+				Type = pointHandle.WaypointType,
+				Yaw = pointHandle.transform.eulerAngles.y
+			};
+
+			validWaypoints.Add(waypointSegment);
 		}
+
+		return validWaypoints;
+	}
 
 		/// <summary>
 		/// Coroutine that flies the drone along the route.
 		/// </summary>
 		private IEnumerator FlyRoute(FlightPath route)
 		{
-			var segments = GetValidWaypointSegments(route);
-			if (segments.Count < 2)
-			{
-				Debug.LogWarning("DronePathFollower: Route has less than 2 valid waypoints.");
-				_currentState = FlightState.Idle;
-				yield break;
-			}
+		var segments = GetValidWaypointSegments(route);
+		if (segments.Count < 2)
+		{
+			Debug.LogWarning("DronePathFollower: Route has less than 2 valid waypoints.");
+			_currentState = FlightState.Idle;
+			yield break;
+		}
 
-			// Spawn drone at first waypoint (will orient toward next if available)
-			Vector3? lookTarget = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
-			SpawnDroneAt(segments[0].Position, lookTarget);
+		// Spawn drone at first waypoint (will orient toward next if available)
+		Vector3? lookTarget = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
+		SpawnDroneAt(segments[0].Position, lookTarget);
 
 			// Face the first leg of the route if we have at least two points
 			if (segments.Count > 1)

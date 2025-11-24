@@ -5,6 +5,7 @@ public class VRPlayerController : MonoBehaviour
 {
     [Header("VR Settings")]
     public float moveSpeed = 3.0f;
+    public float verticalSpeed = 0.5f; // Vertical (up/down) movement speed - adjust in Inspector if too fast
     public float rotationSpeed = 90.0f;
     
     [Header("Input References")]
@@ -45,30 +46,42 @@ public class VRPlayerController : MonoBehaviour
     {
         // Get input from VR controllers
         Vector2 leftThumbstick = Vector2.zero;
-        Vector2 rightThumbstick = Vector2.zero;
+        bool leftPrimaryButton = false;   // X button
+        bool leftSecondaryButton = false; // Y button
         
-        // Try to get thumbstick input from left controller
-        if (InputDevices.GetDeviceAtXRNode(leftHandNode).TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 leftInput))
+        // Get left controller input
+        InputDevice leftDevice = InputDevices.GetDeviceAtXRNode(leftHandNode);
+        if (leftDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 leftInput))
         {
             leftThumbstick = leftInput;
         }
         
-        // Try to get thumbstick input from right controller
-        if (InputDevices.GetDeviceAtXRNode(rightHandNode).TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 rightInput))
+        // Get LEFT controller button input for vertical movement (X = up, Y = down)
+        if (leftDevice.TryGetFeatureValue(CommonUsages.primaryButton, out bool xButton))
         {
-            rightThumbstick = rightInput;
+            leftPrimaryButton = xButton;
+        }
+        if (leftDevice.TryGetFeatureValue(CommonUsages.secondaryButton, out bool yButton))
+        {
+            leftSecondaryButton = yButton;
         }
         
-        // Use left thumbstick for movement
-        Vector3 moveDirection = new Vector3(leftThumbstick.x, 0, leftThumbstick.y);
-        moveDirection = playerCamera.transform.TransformDirection(moveDirection);
-        moveDirection.y = 0; // Keep movement horizontal
+        // Use left thumbstick for horizontal movement
+        Vector3 horizontalMove = new Vector3(leftThumbstick.x, 0, leftThumbstick.y);
+        horizontalMove = playerCamera.transform.TransformDirection(horizontalMove);
+        horizontalMove.y = 0; // Keep horizontal movement flat
         
-        // Apply gravity
-        moveDirection.y = Physics.gravity.y;
+        // Use LEFT X/Y buttons for vertical movement: X (primary) = up, Y (secondary) = down
+        float verticalInput = 0f;
+        if (leftPrimaryButton) verticalInput += 1f;
+        if (leftSecondaryButton) verticalInput -= 1f;
+        
+        // Combine horizontal and vertical movement with their respective speeds
+        Vector3 finalMovement = horizontalMove * moveSpeed * Time.deltaTime;
+        finalMovement.y = verticalInput * verticalSpeed * Time.deltaTime;
         
         // Move the character
-        characterController.Move(moveDirection * moveSpeed * Time.deltaTime);
+        characterController.Move(finalMovement);
     }
     
     void HandleRotation()

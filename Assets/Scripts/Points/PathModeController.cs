@@ -54,12 +54,27 @@ namespace Points
 				_pathRenderer = UnityEngine.Object.FindFirstObjectByType<PathRenderer>();
 			}
 
-			// Reset merge anchor whenever the active route changes
-			if (_pathManager != null)
-			{
-				_pathManager.OnActiveRouteChanged += _ => { _resumeFromPointId = null; };
-			}
+		// Reset merge anchor whenever the active route changes
+		if (_pathManager != null)
+		{
+			_pathManager.OnActiveRouteChanged += _ => { _resumeFromPointId = null; };
+			_pathManager.OnPathValidationError += HandleValidationError;
 		}
+	}
+
+	private void OnDestroy()
+	{
+		if (_pathManager != null)
+		{
+			_pathManager.OnPathValidationError -= HandleValidationError;
+		}
+	}
+
+	private void HandleValidationError(string errorMessage)
+	{
+		Debug.LogWarning($"Path validation error: {errorMessage}");
+		_warningPopup?.ShowMessage(errorMessage);
+	}
 
 		private void Start()
 		{
@@ -132,39 +147,223 @@ namespace Points
 			Vector3 origin = rightControllerTransform.position;
 			Vector3 direction = rightControllerTransform.forward;
 
-			// First try to hit a point handle with much longer range for better reliability
-			if (Physics.Raycast(origin, direction, out RaycastHit hit, 50f, _pointLayerMask))
+		// First try to hit a point handle with much longer range for better reliability
+		if (Physics.Raycast(origin, direction, out RaycastHit hit, 50f, _pointLayerMask))
+		{
+			Debug.Log($"PathMode raycast hit: {hit.collider.name} at distance {hit.distance}");
+			
+			// Check for regular waypoint
+			var pointHandle = hit.collider.GetComponent<PointHandle>();
+			if (pointHandle != null)
 			{
-				Debug.Log($"PathMode raycast hit: {hit.collider.name} at distance {hit.distance}");
-				var pointHandle = hit.collider.GetComponent<PointHandle>();
-				if (pointHandle != null)
-				{
-					Debug.Log($"Found PointHandle {pointHandle.Id} for path building");
-					// Add point to current route
-					AddPointToRoute(pointHandle);
-					return;
-				}
-				else
-				{
-					Debug.Log($"Hit {hit.collider.name} but no PointHandle component found");
-				}
+				Debug.Log($"Found PointHandle {pointHandle.Id} for path building");
+				// Add point to current route
+				AddPointToRoute(pointHandle);
+				return;
 			}
-			else
-			{
-				Debug.Log("PathMode raycast hit nothing");
-			}
+			
+		// Check for Start/End point
+		var startEndPoint = hit.collider.GetComponent<StartEndPoint>();
+		if (startEndPoint != null)
+		{
+			Debug.Log($"Found StartEndPoint {startEndPoint.Type} (ID: {startEndPoint.PointId}) for path building");
+			// Add Start/End point to current route
+			AddStartEndPointToRoute(startEndPoint);
+			return;
+		}
+			
+			Debug.Log($"Hit {hit.collider.name} but no PointHandle or StartEndPoint component found");
+		}
+		else
+		{
+			Debug.Log("PathMode raycast hit nothing");
+		}
 
-			// If no point is hit, treat as a no-op to avoid accidentally clearing/starting routes
-			// Do not start a new route on empty-space clicks
+		// If no point is hit, treat as a no-op to avoid accidentally clearing/starting routes
+		// Do not start a new route on empty-space clicks
+		return;
+		}
+
+	private void AddStartEndPointToRoute(StartEndPoint startEndPoint)
+	{
+		if (startEndPoint == null || _pathManager == null) return;
+
+		// Start/End points use special IDs (-1 for Start, -2 for End)
+		int targetPointId = startEndPoint.PointId;
+		var activeRoute = _pathManager.ActiveRoute;
+
+		// Special case: If route is empty and we're clicking Start point, allow it immediately
+		if ((activeRoute == null || activeRoute.IsEmpty) && targetPointId == -1)
+		{
+			// This is the first point and it's the Start point - perfect!
+			// Create route if needed
+			if (activeRoute == null)
+			{
+				_pathManager.StartNewRoute();
+				activeRoute = _pathManager.ActiveRoute;
+			}
+			
+			if (activeRoute != null)
+			{
+				activeRoute.AddPoint(targetPointId);
+				_resumeFromPointId = targetPointId;
+				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+				
+				// Update the Start point's visual state
+				startEndPoint.UpdateVisualState();
+				
+				// Update renderer
+				if (_pathRenderer != null)
+				{
+					_pathRenderer.UpdateActiveRoute();
+				}
+			}
 			return;
 		}
 
-		private void AddPointToRoute(PointHandle pointHandle)
+		// Determine the "from" point ID for validation
+		int fromPointId = -1;
+		
+		if (activeRoute == null || activeRoute.IsEmpty)
 		{
-			if (pointHandle == null || _pathManager == null) return;
+			// Route is empty but user is NOT clicking Start point - this will fail validation
+			fromPointId = -999; // Invalid ID to trigger validation error
+		}
+		else if (_resumeFromPointId.HasValue && activeRoute.ContainsPoint(_resumeFromPointId.Value))
+		{
+			fromPointId = _resumeFromPointId.Value;
+		}
+		else
+		{
+			fromPointId = GetLastRealPointId(activeRoute);
+		}
+
+		// Validate the segment BEFORE adding
+		if (!_pathManager.CanCreateSegment(fromPointId, targetPointId))
+		{
+			// Error message already sent via OnPathValidationError event
+			ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+			return;
+		}
+
+		// Check if point is already in the current route
+		if (activeRoute != null && activeRoute.ContainsPoint(targetPointId))
+		{
+			// If clicking on the LAST point of the current route, allow continuing
+			if (activeRoute.PointIds[activeRoute.PointIds.Count - 1] == targetPointId)
+			{
+				Debug.Log($"Selected last point {targetPointId} - ready to continue route");
+				ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+				_resumeFromPointId = targetPointId;
+				return;
+			}
+
+			Debug.LogWarning($"Point {targetPointId} is already in the route");
+			return;
+		}
+
+		// Check for no-fly zone collision before adding
+		Vector3 fromPos = Vector3.zero;
+		if (fromPointId == -1)
+		{
+			var startPt = _pathManager.GetStartPoint();
+			fromPos = startPt != null ? startPt.Position : Vector3.zero;
+		}
+		else if (fromPointId == -2)
+		{
+			var endPt = _pathManager.GetEndPoint();
+			fromPos = endPt != null ? endPt.Position : Vector3.zero;
+		}
+		else
+		{
+			var pt = _pointManager.GetPoint(fromPointId);
+			fromPos = pt != null ? pt.transform.position : Vector3.zero;
+		}
+		
+		Vector3 toPos = startEndPoint.transform.position;
+
+		if (SegmentBlockedBetween(fromPos, toPos))
+		{
+			Debug.LogWarning("PathModeController: Cannot connect points through a no-fly zone.");
+			_warningPopup?.ShowMessage("Path blocked: segment enters a no-fly zone.");
+			ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+			
+			// Thesis Feature: Notify experiment tracker
+			var experimentManager = Experiment.ExperimentDataManager.Instance;
+			if (experimentManager != null)
+			{
+				experimentManager.OnSegmentBlocked(fromPos, toPos, "NoFlyZone");
+			}
+			
+			return;
+		}
+
+		// Add to route - create route if needed
+		if (activeRoute == null)
+		{
+			_pathManager.StartNewRoute();
+			activeRoute = _pathManager.ActiveRoute;
+		}
+		
+		if (activeRoute != null)
+		{
+			activeRoute.AddPoint(targetPointId);
+			_resumeFromPointId = targetPointId;
+			ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+			Debug.Log($"Added Start/End point {targetPointId} ({startEndPoint.Type}) to route");
+			
+			// Update the Start/End point's visual state
+			startEndPoint.UpdateVisualState();
+			
+			// Update renderer
+			if (_pathRenderer != null)
+			{
+				_pathRenderer.UpdateActiveRoute();
+			}
+		}
+	}
+
+	private void AddPointToRoute(PointHandle pointHandle)
+	{
+		if (pointHandle == null || _pathManager == null) return;
+
+		var activeRoute = _pathManager.ActiveRoute;
+
+		// Determine the "from" point ID for validation
+		int fromPointId = -1;
+		
+		if (activeRoute == null || activeRoute.IsEmpty)
+		{
+			// First connection - should start from Start point
+			var startPoint = _pathManager.GetStartPoint();
+			if (startPoint != null)
+			{
+				fromPointId = startPoint.PointId; // This will be -1
+			}
+			else
+			{
+				// No Start point configured, allow any first point
+				fromPointId = -999; // Dummy value that won't match any real point
+			}
+		}
+		else if (_resumeFromPointId.HasValue && activeRoute.ContainsPoint(_resumeFromPointId.Value))
+		{
+			fromPointId = _resumeFromPointId.Value;
+		}
+		else
+		{
+			fromPointId = GetLastRealPointId(activeRoute);
+		}
+
+		// Validate the segment BEFORE adding
+		if (!_pathManager.CanCreateSegment(fromPointId, pointHandle.Id))
+		{
+			// Error message already sent via OnPathValidationError event
+			ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+			return;
+		}
 
 			// Check if point is already in the current route
-			var activeRoute = _pathManager.ActiveRoute;
 			if (activeRoute != null && activeRoute.ContainsPoint(pointHandle.Id))
 			{
 				// If we are resuming from a point and the user clicked another existing point,
@@ -390,30 +589,67 @@ namespace Points
 			Vector3 origin = rightControllerTransform.position;
 			Vector3 direction = rightControllerTransform.forward;
 
-			if (Physics.Raycast(origin, direction, out RaycastHit hit, 10f, _pointLayerMask))
+		if (Physics.Raycast(origin, direction, out RaycastHit hit, 10f, _pointLayerMask))
+		{
+			// Check for regular waypoint
+			var pointHandle = hit.collider.GetComponent<PointHandle>();
+			if (pointHandle != null)
 			{
-				var pointHandle = hit.collider.GetComponent<PointHandle>();
-				if (pointHandle != null)
-				{
-					// Provide visual feedback for hovered points
-					HandlePointHover(pointHandle, true);
-					return;
-				}
+				// Provide visual feedback for hovered points
+				HandlePointHover(pointHandle, true);
+				return;
+			}
+			
+			// Check for Start/End point
+			var startEndPoint = hit.collider.GetComponent<StartEndPoint>();
+			if (startEndPoint != null)
+			{
+				// Provide visual feedback for hovered Start/End points
+				HandleStartEndPointHover(startEndPoint, true);
+				return;
+			}
+		}
+
+		// Clear hover state for all points
+		ClearAllPointHovers();
+		}
+
+	private void HandlePointHover(PointHandle pointHandle, bool isHovered)
+	{
+		if (pointHandle == null) return;
+
+		// Update point visual state based on route membership
+		UpdatePointVisualState(pointHandle, isHovered);
+	}
+
+	private void HandleStartEndPointHover(StartEndPoint startEndPoint, bool isHovered)
+	{
+		if (startEndPoint == null) return;
+
+		// Update Start/End point visual state (simple brightness increase on hover)
+		var renderer = startEndPoint.GetComponentInChildren<Renderer>();
+		if (renderer != null)
+		{
+			Color targetColor = (startEndPoint.Type == StartEndPoint.PointType.Start) ? Color.white : Color.black;
+			
+			if (isHovered)
+			{
+				// Brighten on hover
+				targetColor = Color.Lerp(targetColor, Color.cyan, 0.3f);
 			}
 
-			// Clear hover state for all points
-			ClearAllPointHovers();
+			// Apply color
+			foreach (var material in renderer.materials)
+			{
+				if (material != null && material.HasProperty("_Color"))
+				{
+					material.color = targetColor;
+				}
+			}
 		}
+	}
 
-		private void HandlePointHover(PointHandle pointHandle, bool isHovered)
-		{
-			if (pointHandle == null) return;
-
-			// Update point visual state based on route membership
-			UpdatePointVisualState(pointHandle, isHovered);
-		}
-
-		private void UpdatePointVisualState(PointHandle pointHandle, bool isHovered)
+	private void UpdatePointVisualState(PointHandle pointHandle, bool isHovered)
 		{
 			if (pointHandle == null || _pathManager == null) return;
 
@@ -493,37 +729,44 @@ namespace Points
 			return rightController?.transform;
 		}
 
-		private bool SegmentBlockedBetween(int fromPointId, int toPointId)
+	private bool SegmentBlockedBetween(int fromPointId, int toPointId)
+	{
+		if (_pointManager == null) return false;
+		if (fromPointId <= 0 || toPointId <= 0 || fromPointId == toPointId) return false;
+
+		var fromHandle = _pointManager.GetPoint(fromPointId);
+		var toHandle = _pointManager.GetPoint(toPointId);
+		if (fromHandle == null || toHandle == null) return false;
+
+		Vector3 start = fromHandle.transform.position;
+		Vector3 end = toHandle.transform.position;
+		
+		return SegmentBlockedBetween(start, end);
+	}
+
+	private bool SegmentBlockedBetween(Vector3 start, Vector3 end)
+	{
+		if (_pointManager == null) return false;
+		if (Vector3.Distance(start, end) < 0.01f) return false;
+
+		float radius = Mathf.Max(0.01f, _pointManager.DroneRadius);
+		LayerMask mask = _pointManager.EnvironmentLayerMask;
+
+		// Trim a little off the capsule so barely touching the surface isn't counted as a violation
+		Vector3 direction = (end - start);
+		float distance = direction.magnitude;
+		Vector3 offset = distance > 0.001f ? direction.normalized * Mathf.Min(0.05f, distance * 0.25f) : Vector3.zero;
+		Vector3 capsuleStart = start + offset;
+		Vector3 capsuleEnd = end - offset;
+
+		if (Vector3.Distance(capsuleStart, capsuleEnd) < 0.005f)
 		{
-			if (_pointManager == null) return false;
-			if (fromPointId <= 0 || toPointId <= 0 || fromPointId == toPointId) return false;
-
-			var fromHandle = _pointManager.GetPoint(fromPointId);
-			var toHandle = _pointManager.GetPoint(toPointId);
-			if (fromHandle == null || toHandle == null) return false;
-
-			Vector3 start = fromHandle.transform.position;
-			Vector3 end = toHandle.transform.position;
-			if (Vector3.Distance(start, end) < 0.01f) return false;
-
-			float radius = Mathf.Max(0.01f, _pointManager.DroneRadius);
-			LayerMask mask = _pointManager.EnvironmentLayerMask;
-
-			// Trim a little off the capsule so barely touching the surface isn't counted as a violation
-			Vector3 direction = (end - start);
-			float distance = direction.magnitude;
-			Vector3 offset = distance > 0.001f ? direction.normalized * Mathf.Min(0.05f, distance * 0.25f) : Vector3.zero;
-			Vector3 capsuleStart = start + offset;
-			Vector3 capsuleEnd = end - offset;
-
-			if (Vector3.Distance(capsuleStart, capsuleEnd) < 0.005f)
-			{
-				capsuleStart = start;
-				capsuleEnd = end;
-			}
-
-			return Physics.CheckCapsule(capsuleStart, capsuleEnd, radius, mask, QueryTriggerInteraction.Ignore);
+			capsuleStart = start;
+			capsuleEnd = end;
 		}
+
+		return Physics.CheckCapsule(capsuleStart, capsuleEnd, radius, mask, QueryTriggerInteraction.Ignore);
+	}
 
 		private static int GetLastRealPointId(FlightPath route)
 		{

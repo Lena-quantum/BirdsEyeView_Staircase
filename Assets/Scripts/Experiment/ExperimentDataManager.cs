@@ -327,9 +327,33 @@ namespace Experiment
         {
             var activeSegments = _segments.Where(s => !s.wasBlocked).ToList();
 
+            // Get Start/End positions
+            Vector3 startPos = Vector3.zero;
+            Vector3 endPos = Vector3.zero;
+            
+            if (_flightPathManager != null)
+            {
+                var startPoint = _flightPathManager.GetStartPoint();
+                var endPoint = _flightPathManager.GetEndPoint();
+                
+                if (startPoint != null)
+                {
+                    startPos = startPoint.Position;
+                }
+                
+                if (endPoint != null)
+                {
+                    endPos = endPoint.Position;
+                }
+            }
+
             if (activeSegments.Count == 0)
             {
-                return new PathMetrics();
+                return new PathMetrics
+                {
+                    startPosition = startPos,
+                    endPosition = endPos
+                };
             }
 
             float totalLength3D = activeSegments.Sum(s => s.length3D);
@@ -348,6 +372,8 @@ namespace Experiment
 
             return new PathMetrics
             {
+                startPosition = startPos,
+                endPosition = endPos,
                 totalLength3D = totalLength3D,
                 totalLengthHorizontal2D = totalLengthHorizontal,
                 totalVerticalChange = totalVerticalChange,
@@ -561,6 +587,8 @@ namespace Experiment
     [Serializable]
     public class PathMetrics
     {
+        public Vector3 startPosition;
+        public Vector3 endPosition;
         public float totalLength3D;
         public float totalLengthHorizontal2D;
         public float totalVerticalChange;
