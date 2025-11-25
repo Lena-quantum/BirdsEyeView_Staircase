@@ -306,29 +306,25 @@ namespace Points
 				var pointData = _pointManager.GetPointData(pointId);
 				if (!pointData.HasValue) continue;
 
-				// Add delays for specific waypoint types (simplified for thesis)
-				switch (pointData.Value.Type)
-				{
-					case WaypointType.StopRotateContinue:
-						// Future: Add rotation time if needed
-						flightTime += 2.0f; // Estimated 2 seconds to rotate and observe
-						break;
+			// Add delays for specific waypoint types (indoor flight optimized)
+			switch (pointData.Value.Type)
+			{
+				case WaypointType.StopTurnGo:
+					// Use hold time from waypoint data
+					flightTime += pointData.Value.HoldTime > 0 ? pointData.Value.HoldTime : 2.0f;
+					break;
 
-					case WaypointType.Record360:
-						if (pointData.Value.Parameters != null && pointData.Value.Parameters.ContainsKey("duration_s"))
-						{
-							flightTime += (float)pointData.Value.Parameters["duration_s"];
-						}
-						else
-						{
-							flightTime += 15.0f; // Default 15 seconds for 360° rotation
-						}
-						break;
-					
-					case WaypointType.Flythrough:
-						// No additional time - just flies through
-						break;
-				}
+				case WaypointType.Record360:
+					if (pointData.Value.Parameters != null && pointData.Value.Parameters.ContainsKey("duration_s"))
+					{
+						flightTime += (float)pointData.Value.Parameters["duration_s"];
+					}
+					else
+					{
+						flightTime += 15.0f; // Default 15 seconds for 360° rotation
+					}
+					break;
+			}
 			}
 
 			return flightTime;

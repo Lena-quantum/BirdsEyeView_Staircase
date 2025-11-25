@@ -24,7 +24,7 @@ namespace Points
 	private int _routeIndex = -1;
 	
 	// Thesis Feature: Store waypoint type for this point
-	private WaypointType _waypointType = WaypointType.Flythrough;
+	private WaypointType _waypointType = WaypointType.StopTurnGo;
 	
 	// Record360 Feature: Store anchor and recording positions for two-point recording system
 	private Vector3? _recordingPosition = null; // Height where 360° recording happens
@@ -254,12 +254,12 @@ namespace Points
 
 		_routeBadge = new GameObject($"Route Badge {_id}");
 		_routeBadge.transform.SetParent(transform);
-		_routeBadge.transform.localPosition = Vector3.up * (_radius + 0.05f);
-		_routeBadge.transform.localScale = Vector3.one * 0.1f;
+		_routeBadge.transform.localPosition = Vector3.up * (_radius + 0.1f); // Raised higher above point
+		_routeBadge.transform.localScale = Vector3.one * 0.2f; // Increased from 0.1f to 0.2f (2x larger)
 
 		_routeBadgeText = _routeBadge.AddComponent<TextMesh>();
 		_routeBadgeText.text = "";
-		_routeBadgeText.fontSize = 24;
+		_routeBadgeText.fontSize = 32; // Increased from 24 to 32
 		_routeBadgeText.color = Color.white;
 		_routeBadgeText.anchor = TextAnchor.MiddleCenter;
 		_routeBadgeText.alignment = TextAlignment.Center;

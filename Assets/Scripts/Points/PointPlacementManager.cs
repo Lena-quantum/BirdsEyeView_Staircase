@@ -22,6 +22,11 @@ namespace Points
 			public WaypointType Type;
 			public float YawDegrees;
 			public Dictionary<string, object> Parameters;
+			
+			// ArduPilot/PX4 Integration: Autopilot-ready fields for indoor flight
+			public float AcceptanceRadius;  // How close drone must get (meters) - default 0.25m for indoor
+			public float HoldTime;          // How long to wait at waypoint (seconds)
+			public float SpeedMS;           // Target speed in m/s (-1 = use default)
 		}
 
 		public event Action<PointData> OnPointPlaced;
@@ -65,7 +70,7 @@ namespace Points
 	private int _nextId = 1;
 	
 	// Thesis Feature: Current waypoint type selection
-	private WaypointType _currentTypeSelection = WaypointType.Flythrough;
+	private WaypointType _currentTypeSelection = WaypointType.StopTurnGo;
 	
 	// Thesis Feature: Track highlighted obstacles for collision feedback
 	private readonly HashSet<ObstacleHighlighter> _currentlyHighlightedObstacles = new HashSet<ObstacleHighlighter>();
@@ -404,7 +409,12 @@ namespace Points
 			CreatedAt = DateTime.UtcNow,
 			Type = WaypointType.Record360,
 			YawDegrees = _pendingAnchorYaw,
-			Parameters = WaypointTypeDefinition.GetDefaultParameters(WaypointType.Record360)
+			Parameters = WaypointTypeDefinition.GetDefaultParameters(WaypointType.Record360),
+			
+			// ArduPilot/PX4 Integration: Indoor flight defaults for Record360
+			AcceptanceRadius = 0.25f,  // 25cm precision for indoor flight
+			HoldTime = 15.0f,          // Hold during recording
+			SpeedMS = 0.3f             // Very slow approach for recording
 		};
 
 		// Store recording height in parameters
@@ -583,7 +593,12 @@ namespace Points
 			CreatedAt = DateTime.UtcNow,
 			Type = _currentTypeSelection,
 			YawDegrees = yaw,
-			Parameters = WaypointTypeDefinition.GetDefaultParameters(_currentTypeSelection)
+			Parameters = WaypointTypeDefinition.GetDefaultParameters(_currentTypeSelection),
+			
+			// ArduPilot/PX4 Integration: Indoor flight defaults
+			AcceptanceRadius = 0.25f,  // 25cm precision for indoor flight
+			HoldTime = _currentTypeSelection == WaypointType.Record360 ? 15.0f : 2.0f,
+			SpeedMS = _currentTypeSelection == WaypointType.Record360 ? 0.3f : 0.5f
 		};
 
 		_points.Add(data);
@@ -871,14 +886,12 @@ namespace Points
 		{
 			switch (waypointType)
 			{
-				case WaypointType.Flythrough:
-					return Experiment.PointType.FlyThrough;
-				case WaypointType.StopRotateContinue:
+				case WaypointType.StopTurnGo:
 					return Experiment.PointType.StopAndRotate;
 				case WaypointType.Record360:
 					return Experiment.PointType.Record360;
 				default:
-					return Experiment.PointType.FlyThrough;
+					return Experiment.PointType.StopAndRotate;
 			}
 		}
 	}

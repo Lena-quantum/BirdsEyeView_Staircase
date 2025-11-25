@@ -191,11 +191,47 @@ namespace Points
 		// Start/End points use special IDs (-1 for Start, -2 for End)
 		int targetPointId = startEndPoint.PointId;
 		var activeRoute = _pathManager.ActiveRoute;
-
-		// Special case: If route is empty and we're clicking Start point, allow it immediately
-		if ((activeRoute == null || activeRoute.IsEmpty) && targetPointId == -1)
+		
+		// THESIS FEATURE: If no active route but there's a completed route, reopen it for editing
+		if (activeRoute == null && _pathManager.CompletedRoute != null)
 		{
-			// This is the first point and it's the Start point - perfect!
+			Debug.Log($"[AddStartEndPointToRoute] No active route but completed route exists - reopening for editing");
+			_pathManager.ContinueCurrentRoute(); // This reopens the completed route
+			activeRoute = _pathManager.ActiveRoute;
+		}
+
+		// NEW: Check if this Start/End point is already in the route - if so, REMOVE it (deselect)
+		if (activeRoute != null && activeRoute.ContainsPoint(targetPointId))
+		{
+			Debug.Log($"StartEndPoint {targetPointId} already in route - removing it (deselect)");
+			_pathManager.RemoveWaypointFromRoute(targetPointId);
+			ProvideHapticFeedback(_hapticAmplitude, _hapticDuration);
+			
+			// Update the Start/End point's visual state
+			startEndPoint.UpdateVisualState();
+			
+			// Update renderer
+			if (_pathRenderer != null)
+			{
+				_pathRenderer.UpdateActiveRoute();
+			}
+			return;
+		}
+
+		// THESIS FEATURE: Route must always start with Start point
+		// Only enforce this when route is COMPLETELY empty
+		if ((activeRoute == null || activeRoute.IsEmpty))
+		{
+			// Route is empty - only allow Start point as first point
+			if (targetPointId != -1) // Not Start point (e.g., End point)
+			{
+				Debug.LogWarning("PathModeController: First point must be the Start point!");
+				_warningPopup?.ShowMessage("Please select the Start point as the first point in your path");
+				ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+				return;
+			}
+			
+			// This is the Start point and route is empty - perfect!
 			// Create route if needed
 			if (activeRoute == null)
 			{
@@ -220,6 +256,9 @@ namespace Points
 			}
 			return;
 		}
+		
+		// If we get here, route is NOT empty, so Start point is already in the route
+		// Continue with normal validation below
 
 		// Determine the "from" point ID for validation
 		int fromPointId = -1;
@@ -328,6 +367,39 @@ namespace Points
 		if (pointHandle == null || _pathManager == null) return;
 
 		var activeRoute = _pathManager.ActiveRoute;
+		
+		// THESIS FEATURE: If no active route but there's a completed route, reopen it for editing
+		if (activeRoute == null && _pathManager.CompletedRoute != null)
+		{
+			Debug.Log($"[AddPointToRoute] No active route but completed route exists - reopening for editing");
+			_pathManager.ContinueCurrentRoute(); // This reopens the completed route
+			activeRoute = _pathManager.ActiveRoute;
+		}
+		
+		Debug.Log($"[AddPointToRoute] Trying to add waypoint {pointHandle.Id}. Route null? {activeRoute == null}, Route empty? {activeRoute?.IsEmpty}, Point count: {activeRoute?.PointCount}");
+
+		// THESIS FEATURE: Enforce that the first point must be the Start point
+		// Only check if route is empty AND Start point is NOT already in the route
+		if ((activeRoute == null || activeRoute.IsEmpty))
+		{
+			Debug.Log($"[AddPointToRoute] Route is empty - enforcing Start point first rule");
+			// Route is empty - user MUST select Start point first
+			var startPoint = _pathManager.GetStartPoint();
+			if (startPoint != null)
+			{
+				// Show error: first point must be Start point
+				Debug.LogWarning("PathModeController: First point must be the Start point!");
+				_warningPopup?.ShowMessage("Please select the Start point as the first point in your path");
+				ProvideHapticFeedback(_hapticAmplitude * 0.2f, _hapticDuration * 2f);
+				return;
+			}
+			// else: No Start point in scene, allow any first point (fallback)
+			Debug.Log("[AddPointToRoute] No Start point in scene - allowing any first point");
+		}
+		else
+		{
+			Debug.Log($"[AddPointToRoute] Route has {activeRoute.PointCount} points - skipping Start validation, continuing with normal flow");
+		}
 
 		// Determine the "from" point ID for validation
 		int fromPointId = -1;

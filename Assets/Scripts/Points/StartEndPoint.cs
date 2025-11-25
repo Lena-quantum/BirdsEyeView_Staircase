@@ -109,12 +109,12 @@ namespace Points
 
 		_routeBadge = new GameObject($"Route Badge {_pointType}");
 		_routeBadge.transform.SetParent(transform);
-		_routeBadge.transform.localPosition = Vector3.up * 0.6f; // Above the box
-		_routeBadge.transform.localScale = Vector3.one * 0.15f;
+		_routeBadge.transform.localPosition = Vector3.up * 0.65f; // Above the box
+		_routeBadge.transform.localScale = Vector3.one * 0.18f; // Slightly reduced from 0.25f
 
 		_routeBadgeText = _routeBadge.AddComponent<TextMesh>();
 		_routeBadgeText.text = "";
-		_routeBadgeText.fontSize = 24;
+		_routeBadgeText.fontSize = 28; // Slightly reduced from 32
 		_routeBadgeText.color = Color.white;
 		_routeBadgeText.anchor = TextAnchor.MiddleCenter;
 		_routeBadgeText.alignment = TextAlignment.Center;

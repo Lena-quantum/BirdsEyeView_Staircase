@@ -118,20 +118,21 @@ namespace Points
 			
 			_pointIds.RemoveAt(index);
 			
-			// Insert an explicit gap marker (0) only when removing from the middle
-			// This prevents auto-connecting neighbors in rendering
-			bool removedFromMiddle = index > 0 && index < _pointIds.Count;
-			if (removedFromMiddle)
+		// Insert an explicit gap marker (0) only when removing from the middle
+		// This prevents auto-connecting neighbors in rendering
+		bool removedFromMiddle = index > 0 && index < _pointIds.Count;
+		if (removedFromMiddle)
+		{
+			int prevIdx = index - 1;
+			int nextIdx = index; // after removal, next element is now at 'index'
+			// Check if neighbors are breaks (0 only, NOT Start/End which are -1/-2)
+			bool prevIsBreak = _pointIds[prevIdx] == 0;
+			bool nextIsBreak = _pointIds[nextIdx] == 0;
+			if (!prevIsBreak && !nextIsBreak)
 			{
-				int prevIdx = index - 1;
-				int nextIdx = index; // after removal, next element is now at 'index'
-				bool prevIsBreak = _pointIds[prevIdx] <= 0;
-				bool nextIsBreak = _pointIds[nextIdx] <= 0;
-				if (!prevIsBreak && !nextIsBreak)
-				{
-					_pointIds.Insert(index, 0);
-				}
+				_pointIds.Insert(index, 0);
 			}
+		}
 			return true;
 		}
 
@@ -282,10 +283,10 @@ namespace Points
 		/// <summary>
 		/// Get a default color for a route based on its index.
 		/// </summary>
-		private static Color GetDefaultRouteColor(int routeIndex)
-		{
-			// Always use cyan for all routes to maintain consistency
-			return Color.cyan;
-		}
+	private static Color GetDefaultRouteColor(int routeIndex)
+	{
+		// Use darker cyan for all routes - easier on the eyes
+		return new Color(0f, 0.7f, 0.7f); // Darker cyan (was 0, 1, 1)
+	}
 	}
 }

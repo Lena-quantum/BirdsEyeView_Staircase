@@ -267,10 +267,9 @@ Controls:
 - B Button (Path Mode): Undo last waypoint
 - Left Trigger: Remove pointed waypoint
 
-Waypoint Types (3 types for study):
-- Flythrough (Yellow F9FF00): Drone flies through without stopping
-- Stop to Rotate (Green 38FF00): Drone stops, rotates to observe, then continues
-- Record 360° (Orange-Red F74429): Drone stops and rotates slowly 360° for recording
+Waypoint Types (2 types for indoor flight study):
+- Stop-Turn-Go (Green 38FF00): Drone stops, rotates to observe, then continues (standard waypoint)
+- Record 360° (Red C21807): Drone stops and rotates slowly 360° for recording (two-point system)
 
 Collision Avoidance (NEW):
 - Ghost sphere turns GREY when too close to obstacles (<50cm)
