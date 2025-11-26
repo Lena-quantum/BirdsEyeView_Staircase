@@ -165,8 +165,13 @@ namespace Points
 		get => _currentTypeSelection;
 		set
 		{
-			_currentTypeSelection = value;
-			UpdateGhostColorForType();
+			if (_currentTypeSelection != value)
+			{
+				Debug.Log($"PointPlacementManager: Changing waypoint type from {_currentTypeSelection} to {value}");
+				_currentTypeSelection = value;
+				UpdateGhostColorForType();
+				Debug.Log($"PointPlacementManager: Ghost color updated to {WaypointTypeDefinition.GetTypeColor(value)}");
+			}
 		}
 	}
 
@@ -852,14 +857,21 @@ namespace Points
 		/// </summary>
 		private void UpdateGhostColorForType()
 		{
-			if (_ghostRenderer == null) return;
+			if (_ghostRenderer == null)
+			{
+				Debug.LogWarning("PointPlacementManager: Ghost renderer is null! Cannot update ghost color.");
+				return;
+			}
 			
 			Color typeColor = WaypointTypeDefinition.GetTypeColor(_currentTypeSelection);
+			Debug.Log($"PointPlacementManager: Updating ghost color to {typeColor} for type {_currentTypeSelection}");
+			
 			foreach (var mat in _ghostRenderer.sharedMaterials)
 			{
 				if (mat != null && mat.HasProperty("_Color"))
 				{
 					mat.color = typeColor;
+					Debug.Log($"PointPlacementManager: Set material color to {typeColor}");
 				}
 			}
 		}

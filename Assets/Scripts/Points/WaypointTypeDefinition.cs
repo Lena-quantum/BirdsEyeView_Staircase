@@ -48,10 +48,10 @@ namespace Points
 			switch (type)
 			{
 				case WaypointType.StopTurnGo:
-					return HexToColor("FFD700"); // Yellow - standard navigation
+					return HexToColor("F9FF00"); // Bright yellow - flythrough waypoint
 				
 				case WaypointType.Record360:
-					return HexToColor("C21807"); // Darker red - 360° recording
+					return HexToColor("F74429"); // Orange-red - 360° recording
 				
 				default:
 					return Color.white;
