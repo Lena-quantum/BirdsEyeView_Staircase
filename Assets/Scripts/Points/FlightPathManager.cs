@@ -409,6 +409,7 @@ namespace Points
 		private void RegisterStartEndPoints()
 		{
 			StartEndPoint[] points = UnityEngine.Object.FindObjectsByType<StartEndPoint>(FindObjectsSortMode.None);
+			Debug.Log($"[FlightPathManager] Found {points.Length} Start/End point(s) in scene");
 
 			foreach (var point in points)
 			{
@@ -416,21 +417,23 @@ namespace Points
 				{
 					if (_startPoint != null)
 					{
-						Debug.LogWarning("Multiple Start points found in scene. Using the first one.");
+						Debug.LogWarning($"Multiple Start points found in scene. Already have one at {_startPoint.Position}, ignoring one at {point.Position}");
 						continue;
 					}
 					_startPoint = point;
 					_startPoint.Register(START_POINT_ID);
+					Debug.Log($"[FlightPathManager] Registered Start point at position: {_startPoint.Position}");
 				}
 				else if (point.Type == StartEndPoint.PointType.End)
 				{
 					if (_endPoint != null)
 					{
-						Debug.LogWarning("Multiple End points found in scene. Using the first one.");
+						Debug.LogWarning($"Multiple End points found in scene. Already have one at {_endPoint.Position}, ignoring one at {point.Position}");
 						continue;
 					}
 					_endPoint = point;
 					_endPoint.Register(END_POINT_ID);
+					Debug.Log($"[FlightPathManager] Registered End point at position: {_endPoint.Position}");
 				}
 			}
 

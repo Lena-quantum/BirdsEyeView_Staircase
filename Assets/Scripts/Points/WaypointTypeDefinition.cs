@@ -4,24 +4,21 @@ namespace Points
 {
 	/// <summary>
 	/// Defines the types of waypoints available in the VR drone flight path system.
-	/// Simplified for thesis study with 3 distinct behaviors.
+	/// Optimized for indoor flight with 2 distinct behaviors.
 	/// </summary>
 	public enum WaypointType
 	{
 		/// <summary>
-		/// Standard navigation waypoint - drone flies through without stopping.
+		/// Standard waypoint - drone stops, rotates to observe, then continues.
+		/// This is the default/normal waypoint behavior for indoor navigation.
 		/// </summary>
-		Flythrough = 0,
-
-		/// <summary>
-		/// Drone stops, rotates to observe, then continues flying.
-		/// </summary>
-		StopRotateContinue = 1,
+		StopTurnGo = 0,
 
 		/// <summary>
 		/// Drone stops and performs a slow 360-degree rotation for recording.
+		/// Uses two-point system: anchor position + elevated recording position.
 		/// </summary>
-		Record360 = 2
+		Record360 = 1
 	}
 
 	/// <summary>
@@ -36,8 +33,7 @@ namespace Points
 		{
 			switch (type)
 			{
-				case WaypointType.Flythrough: return "Flythrough";
-				case WaypointType.StopRotateContinue: return "Stop to Rotate";
+				case WaypointType.StopTurnGo: return "Stop-Turn-Go";
 				case WaypointType.Record360: return "Record 360°";
 				default: return "Unknown";
 			}
@@ -51,14 +47,11 @@ namespace Points
 		{
 			switch (type)
 			{
-				case WaypointType.Flythrough:
-					return HexToColor("F9FF00"); // Bright yellow - standard navigation
+				case WaypointType.StopTurnGo:
+					return HexToColor("F9FF00"); // Bright yellow - flythrough waypoint
 				
-				case WaypointType.StopRotateContinue:
-					return HexToColor("38FF00"); // Bright green - stop & rotate
-				
-			case WaypointType.Record360:
-				return HexToColor("C21807"); // Darker red - 360° recording
+				case WaypointType.Record360:
+					return HexToColor("F74429"); // Orange-red - 360° recording
 				
 				default:
 					return Color.white;
@@ -93,9 +86,7 @@ namespace Points
 		{
 			switch (type)
 			{
-				case WaypointType.Flythrough:
-					return "Drone flies through without stopping";
-				case WaypointType.StopRotateContinue:
+				case WaypointType.StopTurnGo:
 					return "Drone stops, rotates to observe, then continues";
 				case WaypointType.Record360:
 					return "Drone stops and rotates 360° slowly for recording";
@@ -112,14 +103,11 @@ namespace Points
 		{
 			switch (type)
 			{
-				case WaypointType.Flythrough:
-					return new string[] { }; // No parameters
-
-				case WaypointType.StopRotateContinue:
-					return new string[] { "rotation_degrees" }; // Future: how much to rotate
+				case WaypointType.StopTurnGo:
+					return new string[] { "rotation_degrees" }; // How much to rotate
 
 				case WaypointType.Record360:
-					return new string[] { "duration_s" }; // Future: how long the 360 takes
+					return new string[] { "duration_s" }; // How long the 360 takes
 
 				default:
 					return new string[] { };
@@ -128,6 +116,7 @@ namespace Points
 
 		/// <summary>
 		/// Get default parameter values for a waypoint type.
+		/// Indoor flight optimized with 25cm precision tolerance.
 		/// </summary>
 		public static System.Collections.Generic.Dictionary<string, object> GetDefaultParameters(WaypointType type)
 		{
@@ -135,16 +124,22 @@ namespace Points
 
 			switch (type)
 			{
-				case WaypointType.Flythrough:
-					// No parameters
-					break;
-
-				case WaypointType.StopRotateContinue:
-					defaults["rotation_degrees"] = 90.0f; // Future: default 90° rotation
+				case WaypointType.StopTurnGo:
+					// Standard waypoint for indoor navigation
+					defaults["acceptance_radius"] = 0.25f;     // 25cm - indoor precision
+					defaults["hold_time"] = 2.0f;              // 2 seconds at waypoint
+					defaults["rotation_degrees"] = 0.0f;       // Optional rotation angle
+					defaults["speed_ms"] = 0.5f;               // Slow indoor speed (0.5 m/s)
 					break;
 
 				case WaypointType.Record360:
-					defaults["duration_s"] = 15.0f; // Future: 15 seconds for full 360°
+					// Recording waypoint with 360° rotation
+					defaults["duration_s"] = 15.0f;            // 15s recording time
+					defaults["acceptance_radius"] = 0.25f;     // 25cm precision
+					defaults["hold_time"] = 15.0f;             // Hold during recording
+					defaults["speed_ms"] = 0.3f;               // Very slow approach
+					defaults["rotation_speed_deg_s"] = 10.0f;  // 10 deg/s = 36s for 360°
+					defaults["recording_height_offset"] = 0.5f; // Default 0.5m above anchor
 					break;
 			}
 

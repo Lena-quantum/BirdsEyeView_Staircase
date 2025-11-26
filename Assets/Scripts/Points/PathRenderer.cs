@@ -234,8 +234,8 @@ namespace Points
 			if (_pathLineMaterial == null)
 			{
 				_pathLineMaterial = new Material(Shader.Find("Sprites/Default"));
-				_pathLineMaterial.color = Color.cyan;
-				_pathLineMaterial.renderQueue = 3000; // Transparent
+			_pathLineMaterial.color = new Color(0f, 0.7f, 0.7f); // Darker cyan - easier on the eyes
+			_pathLineMaterial.renderQueue = 3000; // Transparent
 			}
 		}
 
@@ -634,7 +634,16 @@ namespace Points
 		if (pointId == START_POINT_ID)
 		{
 			var startPoint = _pathManager?.GetStartPoint();
-			return startPoint != null ? startPoint.Position : (Vector3?)null;
+			Vector3? position = startPoint != null ? startPoint.Position : (Vector3?)null;
+			if (position.HasValue)
+			{
+				Debug.Log($"[PathRenderer] Getting Start point position: {position.Value} (GameObject: {startPoint.gameObject.name})");
+			}
+			else
+			{
+				Debug.LogWarning("[PathRenderer] Start point is NULL when trying to render!");
+			}
+			return position;
 		}
 		if (pointId == END_POINT_ID)
 		{

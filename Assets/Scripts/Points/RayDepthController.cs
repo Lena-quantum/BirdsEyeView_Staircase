@@ -280,36 +280,53 @@ namespace Points
 
 			Debug.Log($"Left trigger pressed - raycasting from LEFT controller at {origin} in direction {dir}");
 
-			// Raycast to find point handles with longer distance for better reliability
-			if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
+		// Raycast to find point handles with longer distance for better reliability
+		if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
+		{
+			Debug.Log($"Ray hit: {hit.collider.name} at distance {hit.distance}");
+			
+			// Check for regular waypoint
+			var pointHandle = hit.collider.GetComponent<PointHandle>();
+			if (pointHandle != null)
 			{
-				Debug.Log($"Ray hit: {hit.collider.name} at distance {hit.distance}");
-				var pointHandle = hit.collider.GetComponent<PointHandle>();
-				if (pointHandle != null)
+				Debug.Log($"Found point handle {pointHandle.Id}, removing it");
+				// Remove the point
+				bool removed = _manager.RemovePoint(pointHandle.Id);
+				if (removed)
 				{
-					Debug.Log($"Found point handle {pointHandle.Id}, removing it");
-					// Remove the point
-					bool removed = _manager.RemovePoint(pointHandle.Id);
-					if (removed)
-					{
-						_manager.ConfirmHaptics();
-						StopAllCoroutines();
-						StartCoroutine(FadeReadoutRoutine());
-					}
-					return;
+					_manager.ConfirmHaptics();
+					StopAllCoroutines();
+					StartCoroutine(FadeReadoutRoutine());
 				}
-				else
-				{
-					Debug.Log($"Hit object {hit.collider.name} but no PointHandle component found");
-				}
+				return;
 			}
-			else
+			
+			// Check for Start/End point
+			var startEndPoint = hit.collider.GetComponent<Points.StartEndPoint>();
+			if (startEndPoint != null)
 			{
-				Debug.Log("Left trigger raycast hit nothing");
+				Debug.Log($"Found Start/End point {startEndPoint.Type} (ID: {startEndPoint.PointId}), removing from route");
+				// Remove the Start/End point from the route
+				var pathManager = UnityEngine.Object.FindFirstObjectByType<Points.FlightPathManager>();
+				if (pathManager != null)
+				{
+					pathManager.RemoveWaypointFromRoute(startEndPoint.PointId);
+					_manager.ConfirmHaptics();
+					StopAllCoroutines();
+					StartCoroutine(FadeReadoutRoutine());
+				}
+				return;
 			}
+			
+			Debug.Log($"Hit object {hit.collider.name} but no PointHandle or StartEndPoint component found");
+		}
+		else
+		{
+			Debug.Log("Left trigger raycast hit nothing");
+		}
 
-			// If no point hit, provide feedback that nothing was removed
-			_manager.TickHaptics(0.1f, 0.02f);
+		// If no point hit, provide feedback that nothing was removed
+		_manager.TickHaptics(0.1f, 0.02f);
 		}
 
 		// Simple hover tracking

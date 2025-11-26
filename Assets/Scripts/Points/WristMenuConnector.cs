@@ -6,13 +6,13 @@ namespace Points
 	/// <summary>
 	/// Connects the manually created WristUICanvas buttons to the waypoint type selection system.
 	/// Attach this script to your WristUICanvas GameObject.
+	/// Indoor flight optimized with 2 waypoint types.
 	/// </summary>
 	public class WristMenuConnector : MonoBehaviour
 	{
-		[Header("Button References - Assign in Inspector")]
-		[SerializeField] private Button _flythroughButton;
-		[SerializeField] private Button _stopRotateButton;
-		[SerializeField] private Button _recordButton;
+	[Header("Button References - Assign in Inspector")]
+	[SerializeField] private Button _flythroughButton; // Yellow "Flythrough Waypoint" button
+	[SerializeField] private Button _recordButton; // Red "Record" button
 
 		[Header("References - Auto-found")]
 		[SerializeField] private PointPlacementManager _pointManager;
@@ -31,70 +31,73 @@ namespace Points
 				return;
 			}
 
-			// Connect button events
-			SetupButtonListeners();
-			
-			// Set initial selection
-			SelectType(WaypointType.Flythrough);
-			
-			Debug.Log("WristMenuConnector: Buttons connected to waypoint type system");
+		// Connect button events
+		SetupButtonListeners();
+		
+		// Set initial selection to StopTurnGo (yellow waypoint type - default)
+		SelectType(WaypointType.StopTurnGo);
+		
+		Debug.Log("WristMenuConnector: Buttons connected to waypoint type system (2 types)");
 		}
 
-		private void SetupButtonListeners()
+	private void SetupButtonListeners()
+	{
+		if (_flythroughButton != null)
 		{
-			if (_flythroughButton != null)
+			_flythroughButton.onClick.AddListener(() => 
 			{
-				_flythroughButton.onClick.AddListener(() => SelectType(WaypointType.Flythrough));
-				Debug.Log("WristMenuConnector: Connected Flythrough button");
-			}
-			else
-			{
-				Debug.LogWarning("WristMenuConnector: Flythrough button not assigned!");
-			}
-
-			if (_stopRotateButton != null)
-			{
-				_stopRotateButton.onClick.AddListener(() => SelectType(WaypointType.StopRotateContinue));
-				Debug.Log("WristMenuConnector: Connected Stop Rotate button");
-			}
-			else
-			{
-				Debug.LogWarning("WristMenuConnector: Stop Rotate button not assigned!");
-			}
-
-			if (_recordButton != null)
-			{
-				_recordButton.onClick.AddListener(() => SelectType(WaypointType.Record360));
-				Debug.Log("WristMenuConnector: Connected Record button");
-			}
-			else
-			{
-				Debug.LogWarning("WristMenuConnector: Record button not assigned!");
-			}
+				Debug.Log("WristMenuConnector: Flythrough button clicked!");
+				SelectType(WaypointType.StopTurnGo);
+			});
+			Debug.Log("WristMenuConnector: Connected Flythrough Waypoint button (yellow) -> StopTurnGo");
 		}
+		else
+		{
+			Debug.LogWarning("WristMenuConnector: Flythrough Waypoint button not assigned!");
+		}
+
+		if (_recordButton != null)
+		{
+			_recordButton.onClick.AddListener(() => 
+			{
+				Debug.Log("WristMenuConnector: Record button clicked!");
+				SelectType(WaypointType.Record360);
+			});
+			Debug.Log("WristMenuConnector: Connected Record button (red)");
+		}
+		else
+		{
+			Debug.LogWarning("WristMenuConnector: Record button not assigned!");
+		}
+	}
 
 		/// <summary>
 		/// Select a waypoint type - changes ghost color and future waypoint placements.
 		/// </summary>
 		public void SelectType(WaypointType type)
 		{
-			if (_pointManager == null) return;
+			if (_pointManager == null)
+			{
+				Debug.LogError("WristMenuConnector: PointPlacementManager is null! Cannot change waypoint type.");
+				return;
+			}
 
+			Debug.Log($"WristMenuConnector: Setting waypoint type to {type} (was {_pointManager.CurrentTypeSelection})");
 			_pointManager.CurrentTypeSelection = type;
 			
 			Debug.Log($"WristMenuConnector: Selected type {WaypointTypeDefinition.GetTypeName(type)} - Color: {WaypointTypeDefinition.GetTypeColor(type)}");
+			Debug.Log($"WristMenuConnector: PointManager.CurrentTypeSelection is now {_pointManager.CurrentTypeSelection}");
 			
 			// Visual feedback - highlight selected button
 			UpdateButtonVisuals(type);
 		}
 
-		private void UpdateButtonVisuals(WaypointType selectedType)
-		{
-			// Update button colors to show selection
-			UpdateButton(_flythroughButton, WaypointType.Flythrough, selectedType);
-			UpdateButton(_stopRotateButton, WaypointType.StopRotateContinue, selectedType);
-			UpdateButton(_recordButton, WaypointType.Record360, selectedType);
-		}
+	private void UpdateButtonVisuals(WaypointType selectedType)
+	{
+		// Update button colors to show selection (Flythrough button maps to StopTurnGo)
+		UpdateButton(_flythroughButton, WaypointType.StopTurnGo, selectedType);
+		UpdateButton(_recordButton, WaypointType.Record360, selectedType);
+	}
 
 		private void UpdateButton(Button button, WaypointType buttonType, WaypointType selectedType)
 		{
@@ -117,21 +120,16 @@ namespace Points
 			}
 		}
 
-		// Public methods for manual button OnClick() assignment in Inspector
-		public void SelectFlythrough()
-		{
-			SelectType(WaypointType.Flythrough);
-		}
+	// Public methods for manual button OnClick() assignment in Inspector
+	public void SelectFlythrough()
+	{
+		SelectType(WaypointType.StopTurnGo);
+	}
 
-		public void SelectStopRotate()
-		{
-			SelectType(WaypointType.StopRotateContinue);
-		}
-
-		public void SelectRecord360()
-		{
-			SelectType(WaypointType.Record360);
-		}
+	public void SelectRecord360()
+	{
+		SelectType(WaypointType.Record360);
+	}
 	}
 }
 

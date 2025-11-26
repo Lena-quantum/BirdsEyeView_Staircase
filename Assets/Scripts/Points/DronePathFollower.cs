@@ -19,7 +19,7 @@ namespace Points
 		[Header("Flight Settings")]
 		[SerializeField] private float _baseSpeed = 1.0f; // meters per second (base speed)
 		[SerializeField] private float _speedMultiplier = 1.0f; // Speed multiplier (1.0 = normal, 2.0 = 2x faster)
-		[SerializeField] private float _stopRotateDuration = 2.0f; // seconds to pause at StopRotateContinue waypoints
+		[SerializeField] private float _stopRotateDuration = 2.0f; // seconds to pause at StopTurnGo waypoints
 		[SerializeField] private float _record360Duration = 15.0f; // seconds for full 360° rotation at Record360 waypoints
 		[SerializeField] private float _recordPauseSeconds = 1.0f; // pause before/after record rotations
 
@@ -210,10 +210,10 @@ namespace Points
 				{
 					var segment = new WaypointSegment
 					{
-						PointId = pointId,
-						Position = startPoint.Position + _droneOffset,
-						Type = WaypointType.Flythrough, // Start point - just a navigation point
-						Yaw = startPoint.transform.eulerAngles.y
+					PointId = pointId,
+					Position = startPoint.Position + _droneOffset,
+					Type = WaypointType.StopTurnGo, // Start point - standard navigation point
+					Yaw = startPoint.transform.eulerAngles.y
 					};
 					validWaypoints.Add(segment);
 				}
@@ -227,10 +227,10 @@ namespace Points
 				{
 					var segment = new WaypointSegment
 					{
-						PointId = pointId,
-						Position = endPoint.Position + _droneOffset,
-						Type = WaypointType.Flythrough, // End point - just a navigation point
-						Yaw = endPoint.transform.eulerAngles.y
+					PointId = pointId,
+					Position = endPoint.Position + _droneOffset,
+					Type = WaypointType.StopTurnGo, // End point - standard navigation point
+					Yaw = endPoint.transform.eulerAngles.y
 					};
 					validWaypoints.Add(segment);
 				}
@@ -255,22 +255,22 @@ namespace Points
 		return validWaypoints;
 	}
 
-		/// <summary>
-		/// Coroutine that flies the drone along the route.
-		/// </summary>
-		private IEnumerator FlyRoute(FlightPath route)
-		{
-		var segments = GetValidWaypointSegments(route);
-		if (segments.Count < 2)
-		{
-			Debug.LogWarning("DronePathFollower: Route has less than 2 valid waypoints.");
-			_currentState = FlightState.Idle;
-			yield break;
-		}
+	/// <summary>
+	/// Coroutine that flies the drone along the route.
+	/// </summary>
+	private IEnumerator FlyRoute(FlightPath route)
+	{
+	var segments = GetValidWaypointSegments(route);
+	if (segments.Count < 2)
+	{
+		Debug.LogWarning("DronePathFollower: Route has less than 2 valid waypoints.");
+		_currentState = FlightState.Idle;
+		yield break;
+	}
 
-		// Spawn drone at first waypoint (will orient toward next if available)
-		Vector3? lookTarget = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
-		SpawnDroneAt(segments[0].Position, lookTarget);
+	// Spawn drone at first waypoint (will orient toward next if available)
+	Vector3? lookTarget = segments.Count > 1 ? segments[1].Position : (Vector3?)null;
+	SpawnDroneAt(segments[0].Position, lookTarget);
 
 			// Face the first leg of the route if we have at least two points
 			if (segments.Count > 1)
@@ -287,33 +287,31 @@ namespace Points
 				}
 			}
 
-			// Fly between waypoints
-			for (int i = 0; i < segments.Count - 1; i++)
+		// Fly between waypoints
+		for (int i = 0; i < segments.Count - 1; i++)
+		{
+			var from = segments[i];
+			var to = segments[i + 1];
+
+			// Fly to next waypoint (drone flies straight without rotating)
+			yield return StartCoroutine(FlyToPosition(from.Position, to.Position, false));
+
+			// Handle waypoint-specific behavior
+			switch (to.Type)
 			{
-				var from = segments[i];
-				var to = segments[i + 1];
+				case WaypointType.StopTurnGo:
+					// Pause, then rotate to face next waypoint (if there is one)
+					Vector3? nextWaypointPos = (i + 2 < segments.Count) ? segments[i + 2].Position : (Vector3?)null;
+					yield return StartCoroutine(StopAndRotateToNext(to, nextWaypointPos, _stopRotateDuration));
+					break;
 
-				// Fly to next waypoint
-				yield return StartCoroutine(FlyToPosition(from.Position, to.Position));
-
-				// Handle waypoint-specific behavior
-				switch (to.Type)
-				{
-					case WaypointType.Flythrough:
-						// No pause - continue immediately
-						break;
-
-					case WaypointType.StopRotateContinue:
-						// Pause and rotate to observe
-						yield return StartCoroutine(StopAndRotate(to, _stopRotateDuration));
-						break;
-
-					case WaypointType.Record360:
-						// Stop and perform 360° rotation
-						yield return StartCoroutine(Record360Rotation(to, _record360Duration));
-						break;
-				}
+			case WaypointType.Record360:
+				// Stop and perform 360° rotation, then rotate to face next waypoint
+				Vector3? nextWaypointPosFor360 = (i + 2 < segments.Count) ? segments[i + 2].Position : (Vector3?)null;
+				yield return StartCoroutine(Record360Rotation(to, nextWaypointPosFor360, _record360Duration));
+				break;
 			}
+		}
 
 			SetRecordLightStreamVisible(false);
 
@@ -329,29 +327,35 @@ namespace Points
 			}
 		}
 
-		/// <summary>
-		/// Coroutine that moves the drone from one position to another.
-		/// </summary>
-		private IEnumerator FlyToPosition(Vector3 from, Vector3 to)
+	/// <summary>
+	/// Coroutine that moves the drone from one position to another.
+	/// </summary>
+	/// <param name="from">Starting position</param>
+	/// <param name="to">Target position</param>
+	/// <param name="rotateTowardDestination">If true, drone rotates toward destination; if false, maintains current rotation</param>
+	private IEnumerator FlyToPosition(Vector3 from, Vector3 to, bool rotateTowardDestination = true)
+	{
+		if (_droneInstance == null) yield break;
+
+		float distance = Vector3.Distance(from, to);
+		float travelTime = distance / (_baseSpeed * _speedMultiplier);
+
+		if (travelTime <= 0f)
 		{
-			if (_droneInstance == null) yield break;
+			_droneInstance.transform.position = to;
+			yield break;
+		}
 
-			float distance = Vector3.Distance(from, to);
-			float travelTime = distance / (_baseSpeed * _speedMultiplier);
+		float elapsed = 0f;
+		Vector3 startPos = from;
 
-			if (travelTime <= 0f)
-			{
-				_droneInstance.transform.position = to;
-				yield break;
-			}
+		// Lock rotation at the start - drone flies straight
+		Quaternion startRotation = _droneInstance.transform.rotation;
 
-			float elapsed = 0f;
-			Vector3 startPos = from;
-
-			Quaternion startRotation = ComputeLevelRotation(_droneInstance.transform.forward);
-			_droneInstance.transform.rotation = startRotation;
-			UpdateLastForward(startRotation * Vector3.forward);
-
+		// Only update target rotation if explicitly requested (used for vertical Record360 movement)
+		Quaternion targetRotation = startRotation;
+		if (rotateTowardDestination)
+		{
 			Vector3 desiredForward = Vector3.ProjectOnPlane(to - from, Vector3.up);
 			if (desiredForward.sqrMagnitude < 0.0001f)
 			{
@@ -362,41 +366,58 @@ namespace Points
 				desiredForward.Normalize();
 				_lastFlatForward = desiredForward;
 			}
-			Quaternion targetRotation = Quaternion.LookRotation(_lastFlatForward, Vector3.up);
+			targetRotation = Quaternion.LookRotation(_lastFlatForward, Vector3.up);
+		}
 
-			while (elapsed < travelTime)
+		while (elapsed < travelTime)
+		{
+			if (_currentState == FlightState.Paused)
 			{
-				if (_currentState == FlightState.Paused)
-				{
-					yield return null;
-					continue;
-				}
-
-				if (_currentState != FlightState.Playing)
-				{
-					yield break;
-				}
-
-				elapsed += Time.deltaTime;
-				float t = Mathf.Clamp01(elapsed / travelTime);
-
-				// Smooth interpolation
-				_droneInstance.transform.position = Vector3.Lerp(startPos, to, t);
-
-				// Orient drone towards destination
-				_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
-
 				yield return null;
+				continue;
 			}
 
-			// Ensure we end at exact position
-			if (_droneInstance != null)
+			if (_currentState != FlightState.Playing)
 			{
-				_droneInstance.transform.position = to;
+				yield break;
+			}
+
+			elapsed += Time.deltaTime;
+			float t = Mathf.Clamp01(elapsed / travelTime);
+
+			// Smooth interpolation
+			_droneInstance.transform.position = Vector3.Lerp(startPos, to, t);
+
+			// Only rotate if requested (for vertical detours in Record360)
+			if (rotateTowardDestination)
+			{
+				_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
+			}
+			else
+			{
+				// Maintain current rotation - fly straight
+				_droneInstance.transform.rotation = startRotation;
+			}
+
+			yield return null;
+		}
+
+		// Ensure we end at exact position
+		if (_droneInstance != null)
+		{
+			_droneInstance.transform.position = to;
+			if (rotateTowardDestination)
+			{
 				_droneInstance.transform.rotation = targetRotation;
 				UpdateLastForward(targetRotation * Vector3.forward);
 			}
+			else
+			{
+				// Keep rotation as-is
+				_droneInstance.transform.rotation = startRotation;
+			}
 		}
+	}
 
 		private void StopFlight(bool destroyDrone)
 		{
@@ -474,152 +495,249 @@ namespace Points
 			SetupRecordLightStream();
 		}
 
-		/// <summary>
-		/// Coroutine that pauses and rotates the drone at a waypoint.
-		/// </summary>
-		private IEnumerator StopAndRotate(WaypointSegment waypoint, float duration)
+	/// <summary>
+	/// Coroutine that pauses the drone, then rotates it to face the next waypoint.
+	/// Thesis Feature: Shortest-angle rotation for efficient indoor navigation.
+	/// </summary>
+	private IEnumerator StopAndRotateToNext(WaypointSegment currentWaypoint, Vector3? nextWaypointPosition, float pauseDuration)
+	{
+		if (_droneInstance == null) yield break;
+
+		// Step 1: Pause at current waypoint (half the duration)
+		float pauseTime = pauseDuration * 0.5f;
+		float elapsed = 0f;
+
+		while (elapsed < pauseTime)
 		{
-			if (_droneInstance == null) yield break;
-
-			Quaternion startRotation = ComputeLevelRotation(_droneInstance.transform.forward);
-			_droneInstance.transform.rotation = startRotation;
-			UpdateLastForward(startRotation * Vector3.forward);
-
-			Quaternion targetRotation = Quaternion.AngleAxis(waypoint.Yaw, Vector3.up);
-
-			float elapsed = 0f;
-
-			while (elapsed < duration)
+			if (_currentState == FlightState.Paused)
 			{
-				// Wait for play state if paused
-				if (_currentState == FlightState.Paused)
+				while (_currentState == FlightState.Paused)
 				{
-					while (_currentState == FlightState.Paused)
-					{
-						yield return null;
-					}
-					continue;
+					yield return null;
 				}
-
-				if (_currentState != FlightState.Playing) yield break;
-
-				elapsed += Time.deltaTime;
-				float t = Mathf.Clamp01(elapsed / duration);
-
-				if (_droneInstance != null)
-				{
-					_droneInstance.transform.position = waypoint.Position;
-					_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
-				}
-
-				yield return null;
+				continue;
 			}
+
+			if (_currentState != FlightState.Playing) yield break;
+
+			elapsed += Time.deltaTime;
 
 			if (_droneInstance != null)
 			{
-				_droneInstance.transform.position = waypoint.Position;
-				_droneInstance.transform.rotation = targetRotation;
-				UpdateLastForward(targetRotation * Vector3.forward);
+				_droneInstance.transform.position = currentWaypoint.Position;
 			}
+
+			yield return null;
 		}
 
-		/// <summary>
-		/// Coroutine that performs a slow 360° rotation at a waypoint.
-		/// Record360 Feature: Fly to anchor, move vertically to recording height, record, return to anchor.
-		/// </summary>
-		private IEnumerator Record360Rotation(WaypointSegment waypoint, float duration)
+		// Step 2: Rotate to face next waypoint (if there is one)
+		if (nextWaypointPosition.HasValue)
 		{
-			if (_droneInstance == null) yield break;
-
-			// Get the point handle to check if it has a separate recording position
-			PointHandle handle = _pointManager != null ? _pointManager.GetPoint(waypoint.PointId) : null;
-			Vector3 anchorPosition = waypoint.Position;
-			Vector3 recordingPosition = anchorPosition; // Default to anchor if no separate position
-
-			if (handle != null && handle.HasRecordingPosition && handle.RecordingPosition.HasValue)
+			Quaternion startRotation = _droneInstance.transform.rotation;
+			
+			// Calculate direction to next waypoint (shortest angle on horizontal plane)
+			Vector3 directionToNext = Vector3.ProjectOnPlane(nextWaypointPosition.Value - currentWaypoint.Position, Vector3.up);
+			
+			if (directionToNext.sqrMagnitude > 0.0001f)
 			{
-				recordingPosition = handle.RecordingPosition.Value;
-				Debug.Log($"DronePathFollower: Record360 waypoint has separate recording position: Anchor={anchorPosition}, Recording={recordingPosition}");
-			}
+				directionToNext.Normalize();
+				Quaternion targetRotation = Quaternion.LookRotation(directionToNext, Vector3.up);
 
-			bool hasVerticalDetour = Vector3.Distance(anchorPosition, recordingPosition) > 0.01f;
+				// Rotate over the remaining duration
+				float rotateTime = pauseDuration * 0.5f;
+				elapsed = 0f;
 
-			// Step 1: Pause at anchor position
-			if (_recordPauseSeconds > 0f && hasVerticalDetour)
-			{
-				yield return PauseAtPosition(anchorPosition, _recordPauseSeconds);
-			}
-
-			// Step 2: Fly vertically to recording position (if different from anchor)
-			if (hasVerticalDetour)
-			{
-				yield return StartCoroutine(FlyToPosition(anchorPosition, recordingPosition));
-			}
-
-			// Step 3: Perform 360° recording at recording position
-			bool showingLightStream = PrepareRecordLightStreamForRecord();
-
-			if (_recordPauseSeconds > 0f)
-			{
-				yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
-			}
-
-			Quaternion baseRotation = ComputeLevelRotation(_droneInstance.transform.forward);
-			_droneInstance.transform.rotation = baseRotation;
-			UpdateLastForward(baseRotation * Vector3.forward);
-
-			float elapsed = 0f;
-
-			while (elapsed < duration)
-			{
-				// Wait for play state if paused
-				if (_currentState == FlightState.Paused)
+				while (elapsed < rotateTime)
 				{
-					while (_currentState == FlightState.Paused)
+					if (_currentState == FlightState.Paused)
 					{
-						yield return null;
+						while (_currentState == FlightState.Paused)
+						{
+							yield return null;
+						}
+						continue;
 					}
-					continue;
+
+					if (_currentState != FlightState.Playing) yield break;
+
+					elapsed += Time.deltaTime;
+					float t = Mathf.Clamp01(elapsed / rotateTime);
+
+					if (_droneInstance != null)
+					{
+						_droneInstance.transform.position = currentWaypoint.Position;
+						_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
+					}
+
+					yield return null;
 				}
 
-				if (_currentState != FlightState.Playing) yield break;
-
-				elapsed += Time.deltaTime;
-				float t = Mathf.Clamp01(elapsed / duration);
-
+				// Ensure final rotation is exact
 				if (_droneInstance != null)
 				{
-					_droneInstance.transform.position = recordingPosition;
-					_droneInstance.transform.rotation = baseRotation * Quaternion.AngleAxis(t * 360f, Vector3.up);
+					_droneInstance.transform.position = currentWaypoint.Position;
+					_droneInstance.transform.rotation = targetRotation;
+					UpdateLastForward(directionToNext);
 				}
+			}
+		}
+	}
 
-				yield return null;
+	/// <summary>
+	/// Coroutine that performs a slow 360° rotation at a waypoint.
+	/// Record360 Feature: Fly to anchor, move vertically to recording height, record, return to anchor, then rotate to next waypoint.
+	/// </summary>
+	/// <param name="waypoint">Current Record360 waypoint</param>
+	/// <param name="nextWaypointPosition">Position of next waypoint (if any) to rotate toward after recording</param>
+	/// <param name="duration">Duration of the 360° rotation</param>
+	private IEnumerator Record360Rotation(WaypointSegment waypoint, Vector3? nextWaypointPosition, float duration)
+	{
+		if (_droneInstance == null) yield break;
+
+		// Get the point handle to check if it has a separate recording position
+		PointHandle handle = _pointManager != null ? _pointManager.GetPoint(waypoint.PointId) : null;
+		Vector3 anchorPosition = waypoint.Position;
+		Vector3 recordingPosition = anchorPosition; // Default to anchor if no separate position
+
+		if (handle != null && handle.HasRecordingPosition && handle.RecordingPosition.HasValue)
+		{
+			recordingPosition = handle.RecordingPosition.Value;
+			Debug.Log($"DronePathFollower: Record360 waypoint has separate recording position: Anchor={anchorPosition}, Recording={recordingPosition}");
+		}
+
+		bool hasVerticalDetour = Vector3.Distance(anchorPosition, recordingPosition) > 0.01f;
+
+		// Step 1: Pause at anchor position
+		if (_recordPauseSeconds > 0f && hasVerticalDetour)
+		{
+			yield return PauseAtPosition(anchorPosition, _recordPauseSeconds);
+		}
+
+		// Step 2: Fly vertically to recording position (if different from anchor)
+		// Don't rotate during vertical movement - maintain current orientation
+		if (hasVerticalDetour)
+		{
+			yield return StartCoroutine(FlyToPosition(anchorPosition, recordingPosition, false));
+		}
+
+		// Step 3: Perform 360° recording at recording position
+		bool showingLightStream = PrepareRecordLightStreamForRecord();
+
+		if (_recordPauseSeconds > 0f)
+		{
+			yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
+		}
+
+		Quaternion baseRotation = ComputeLevelRotation(_droneInstance.transform.forward);
+		_droneInstance.transform.rotation = baseRotation;
+		UpdateLastForward(baseRotation * Vector3.forward);
+
+		float elapsed = 0f;
+
+		while (elapsed < duration)
+		{
+			// Wait for play state if paused
+			if (_currentState == FlightState.Paused)
+			{
+				while (_currentState == FlightState.Paused)
+				{
+					yield return null;
+				}
+				continue;
 			}
 
-			// Reset to start rotation
+			if (_currentState != FlightState.Playing) yield break;
+
+			elapsed += Time.deltaTime;
+			float t = Mathf.Clamp01(elapsed / duration);
+
 			if (_droneInstance != null)
 			{
 				_droneInstance.transform.position = recordingPosition;
-				_droneInstance.transform.rotation = baseRotation;
-				UpdateLastForward(baseRotation * Vector3.forward);
+				_droneInstance.transform.rotation = baseRotation * Quaternion.AngleAxis(t * 360f, Vector3.up);
 			}
 
-			if (showingLightStream)
-			{
-				SetRecordLightStreamVisible(false);
-			}
+			yield return null;
+		}
 
-			if (_recordPauseSeconds > 0f)
-			{
-				yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
-			}
+		// Reset to start rotation
+		if (_droneInstance != null)
+		{
+			_droneInstance.transform.position = recordingPosition;
+			_droneInstance.transform.rotation = baseRotation;
+			UpdateLastForward(baseRotation * Vector3.forward);
+		}
 
-			// Step 4: Return to anchor position (if we moved vertically)
-			if (hasVerticalDetour)
+		if (showingLightStream)
+		{
+			SetRecordLightStreamVisible(false);
+		}
+
+		if (_recordPauseSeconds > 0f)
+		{
+			yield return PauseAtPosition(recordingPosition, _recordPauseSeconds);
+		}
+
+		// Step 4: Return to anchor position (if we moved vertically)
+		// Don't rotate during vertical return - maintain current orientation
+		if (hasVerticalDetour)
+		{
+			yield return StartCoroutine(FlyToPosition(recordingPosition, anchorPosition, false));
+		}
+
+		// Step 5: Rotate to face next waypoint (if there is one)
+		// This ensures the drone is oriented correctly before flying to the next point
+		if (nextWaypointPosition.HasValue && _droneInstance != null)
+		{
+			Quaternion startRotation = _droneInstance.transform.rotation;
+			
+			// Calculate direction to next waypoint (shortest angle on horizontal plane)
+			Vector3 directionToNext = Vector3.ProjectOnPlane(nextWaypointPosition.Value - anchorPosition, Vector3.up);
+			
+			if (directionToNext.sqrMagnitude > 0.0001f)
 			{
-				yield return StartCoroutine(FlyToPosition(recordingPosition, anchorPosition));
+				directionToNext.Normalize();
+				Quaternion targetRotation = Quaternion.LookRotation(directionToNext, Vector3.up);
+
+				// Rotate over a short duration (use same as stop rotate duration)
+				float rotateTime = _stopRotateDuration * 0.5f;
+				elapsed = 0f;
+
+				while (elapsed < rotateTime)
+				{
+					if (_currentState == FlightState.Paused)
+					{
+						while (_currentState == FlightState.Paused)
+						{
+							yield return null;
+						}
+						continue;
+					}
+
+					if (_currentState != FlightState.Playing) yield break;
+
+					elapsed += Time.deltaTime;
+					float t = Mathf.Clamp01(elapsed / rotateTime);
+
+					if (_droneInstance != null)
+					{
+						_droneInstance.transform.position = anchorPosition;
+						_droneInstance.transform.rotation = Quaternion.Slerp(startRotation, targetRotation, t);
+					}
+
+					yield return null;
+				}
+
+				// Ensure final rotation is exact
+				if (_droneInstance != null)
+				{
+					_droneInstance.transform.position = anchorPosition;
+					_droneInstance.transform.rotation = targetRotation;
+					UpdateLastForward(directionToNext);
+				}
 			}
 		}
+	}
 
 		private IEnumerator PauseAtPosition(Vector3 position, float duration)
 		{
