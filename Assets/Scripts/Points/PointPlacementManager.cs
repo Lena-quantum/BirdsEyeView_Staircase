@@ -57,6 +57,11 @@ namespace Points
 	[SerializeField] private float _droneRadius = 0.45f; // 45 cm safety buffer (0.8m drone diameter / 2 + safety margin)
 	[SerializeField] private LayerMask _environmentLayer = 1 << 0; // Default layer initially
 	[SerializeField] private Color _collisionGhostColor = new Color(0.5f, 0.5f, 0.5f, 0.5f); // Grey semi-transparent
+	
+	// Birds-eye View Feature: Exclude CorridorShell from no-fly zone checks (only check interior surfaces)
+	[Header("No-Fly Zone Exclusions")]
+	[Tooltip("Layer for corridor shell (outer walls/ceiling). Excluded from no-fly zone checks - only interior surfaces show red warning shells.")]
+	[SerializeField] private LayerMask _corridorShellLayer = 0; // Default: no layer (disabled)
 
 	// Record360 Feature: Two-step placement system
 	[SerializeField] private RecordingHeightController _recordingHeightController;
@@ -214,6 +219,17 @@ namespace Points
 		
 		// Thesis Feature: Initialize ghost with default type color
 		UpdateGhostColorForType();
+		
+		// Birds-eye View Feature: Auto-detect CorridorShell layer if not set
+		if (_corridorShellLayer == 0)
+		{
+			int shellLayer = LayerMask.NameToLayer("CorridorShell");
+			if (shellLayer >= 0)
+			{
+				_corridorShellLayer = 1 << shellLayer;
+				Debug.Log($"PointPlacementManager: Auto-found CorridorShell layer (index {shellLayer}) for no-fly zone exclusion");
+			}
+		}
 
 		// Record360 Feature: Initialize recording height controller
 		if (_recordingHeightController == null)
@@ -772,7 +788,14 @@ namespace Points
 		bool hasCollision = false;
 		
 		// Find all colliders within drone radius
-		Collider[] nearbyColliders = Physics.OverlapSphere(ghostPos, _droneRadius, _environmentLayer);
+		// Birds-eye View Feature: Exclude CorridorShell layer - only check interior surfaces (Environment layer)
+		LayerMask noFlyZoneMask = _environmentLayer;
+		if (_corridorShellLayer != 0)
+		{
+			// Exclude CorridorShell from no-fly zone checks (outer walls/ceiling should not show red shells)
+			noFlyZoneMask = _environmentLayer & ~_corridorShellLayer;
+		}
+		Collider[] nearbyColliders = Physics.OverlapSphere(ghostPos, _droneRadius, noFlyZoneMask);
 		
 		// Track which obstacles should be highlighted this frame
 		HashSet<ObstacleHighlighter> shouldBeHighlighted = new HashSet<ObstacleHighlighter>();

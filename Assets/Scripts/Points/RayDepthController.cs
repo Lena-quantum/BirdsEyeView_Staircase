@@ -23,6 +23,13 @@ namespace Points
 		// Thesis Feature: Exclude UI layer from point placement raycasts
 		private LayerMask _surfaceRaycastMask;
 		private Canvas _wristUICanvas; // Reference to user's manual wrist menu
+		
+		// Birds-eye View Feature: Viewpoint-aware raycasting
+		[Header("Viewpoint-Aware Raycasting")]
+		[Tooltip("Detector for inside/outside corridor viewpoint. If null, assumes inside (default behavior).")]
+		[SerializeField] private CorridorViewpointDetector _viewpointDetector;
+		[Tooltip("Layer for corridor shell (outer walls/ceiling). Raycasts ignore this layer when outside corridor.")]
+		[SerializeField] private LayerMask _corridorShellLayer = 0; // Default: no layer (disabled)
 
 		private float _currentDepth;
 		private bool _triggerPrev;
@@ -70,6 +77,27 @@ namespace Points
 			else
 			{
 				_surfaceRaycastMask = _raycastMask;
+			}
+			
+			// Birds-eye View Feature: Auto-find viewpoint detector if not assigned
+			if (_viewpointDetector == null)
+			{
+				_viewpointDetector = UnityEngine.Object.FindFirstObjectByType<CorridorViewpointDetector>();
+				if (_viewpointDetector != null)
+				{
+					Debug.Log("RayDepthController: Auto-found CorridorViewpointDetector");
+				}
+			}
+			
+			// Birds-eye View Feature: Try to find CorridorShell layer by name if not set
+			if (_corridorShellLayer == 0)
+			{
+				int shellLayer = LayerMask.NameToLayer("CorridorShell");
+				if (shellLayer >= 0)
+				{
+					_corridorShellLayer = 1 << shellLayer;
+					Debug.Log($"RayDepthController: Auto-found CorridorShell layer (index {shellLayer})");
+				}
 			}
 			
 			// Ensure the ray line is visible
@@ -162,19 +190,31 @@ namespace Points
 		bool useSnap = _manager.SurfaceSnappingEnabled;
 		bool snapped = false;
 		Vector3 ghostPos = origin + dir * _currentDepth;
-		if (useSnap)
+		
+		// Birds-eye View Feature: When outside, ray passes through ALL colliders to reach interior space
+		// Ghost uses depth-based positioning (not surface-snapped)
+		// No-fly zone will still check Environment colliders at this position
+		bool isOutside = _viewpointDetector != null && !_viewpointDetector.IsInsideCorridor;
+		
+		if (useSnap && !isOutside)
 		{
+			// Inside corridor: Normal surface snapping (ray stops at colliders)
 			RaycastHit hit;
-			// Thesis Feature: Use UI-excluded mask for surface snapping
 			if (Physics.Raycast(origin, dir, out hit, _currentDepth + 0.01f, _surfaceRaycastMask, QueryTriggerInteraction.Ignore))
 			{
 				ghostPos = hit.point;
 				snapped = true;
 			}
 		}
+		// When outside: Don't use surface snapping - ghost stays at depth-based position
+		// This allows placing waypoints inside corridor even though colliders exist
+		// No-fly zone check (in UpdateGhostVisualValidity) will still prevent placement too close to walls/ceiling
 
 		_ghostTransform.position = ghostPos;
-		_manager.UpdateGhostVisualValidity(valid && (!useSnap || snapped || Mathf.Abs(_currentDepth - Mathf.Clamp(_currentDepth, _manager.MinDepth, _manager.MaxDepth)) < 0.0001f));
+		// When outside, allow placement even without surface snapping (ghost at depth-based position)
+		// No-fly zone check will still prevent placement too close to obstacles
+		bool isValidForPlacement = valid && (isOutside || !useSnap || snapped || Mathf.Abs(_currentDepth - Mathf.Clamp(_currentDepth, _manager.MinDepth, _manager.MaxDepth)) < 0.0001f);
+		_manager.UpdateGhostVisualValidity(isValidForPlacement);
 	}
 
 	_manager.UpdateReadout($"{_currentDepth:F2} m");
@@ -457,7 +497,69 @@ namespace Points
 			
 			return false;
 		}
+		
+		/// <summary>
+		/// Birds-eye View Feature: Multi-pass raycast that passes through CorridorShell when outside,
+		/// but still hits Environment layer surfaces (interior floors, walls, ceiling).
+		/// </summary>
+		private bool RaycastThroughShell(Vector3 origin, Vector3 direction, float maxDistance, out RaycastHit finalHit)
+		{
+			finalHit = new RaycastHit();
+			
+			// If no viewpoint detector or no corridor shell layer, use normal raycast
+			if (_viewpointDetector == null || _corridorShellLayer == 0)
+			{
+				return Physics.Raycast(origin, direction, out finalHit, maxDistance, _surfaceRaycastMask, QueryTriggerInteraction.Ignore);
+			}
+			
+			// If inside corridor, use normal raycast (all colliders solid)
+			if (_viewpointDetector.IsInsideCorridor)
+			{
+				return Physics.Raycast(origin, direction, out finalHit, maxDistance, _surfaceRaycastMask, QueryTriggerInteraction.Ignore);
+			}
+			
+			// If outside corridor: multi-pass raycast to pass through CorridorShell but hit Environment
+			float remainingDistance = maxDistance;
+			Vector3 currentOrigin = origin;
+			int maxPasses = 10; // Safety limit
+			int passCount = 0;
+			
+			while (remainingDistance > 0.001f && passCount < maxPasses)
+			{
+				passCount++;
+				RaycastHit hit;
+				
+				// First, check if we hit CorridorShell (outer walls/ceiling)
+				LayerMask shellOnlyMask = _corridorShellLayer;
+				if (Physics.Raycast(currentOrigin, direction, out hit, remainingDistance, shellOnlyMask, QueryTriggerInteraction.Ignore))
+				{
+					// Hit CorridorShell - pass through it and continue raycast
+					float distanceToShell = hit.distance;
+					currentOrigin = hit.point + direction * 0.01f; // Move slightly past the shell
+					remainingDistance -= (distanceToShell + 0.01f);
+					
+					// Continue to next pass
+					continue;
+				}
+				
+				// No CorridorShell hit - check for Environment layer (interior surfaces)
+				LayerMask environmentMask = _manager != null ? _manager.EnvironmentLayerMask : _surfaceRaycastMask;
+				// Exclude CorridorShell from environment check
+				environmentMask = environmentMask & ~_corridorShellLayer;
+				
+				if (Physics.Raycast(currentOrigin, direction, out hit, remainingDistance, environmentMask, QueryTriggerInteraction.Ignore))
+				{
+					// Hit Environment surface (interior floor, wall, ceiling) - this is our target!
+					finalHit = hit;
+					return true;
+				}
+				
+				// No hit - ray went through everything
+				break;
+			}
+			
+			// No valid surface found
+			return false;
+		}
 	}
 }
-
-

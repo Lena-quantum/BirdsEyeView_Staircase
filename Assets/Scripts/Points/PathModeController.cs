@@ -13,6 +13,13 @@ namespace Points
 		[SerializeField] private PathRenderer _pathRenderer;
 		[SerializeField] private PathWarningPopup _warningPopup;
 		[SerializeField] private LayerMask _pointLayerMask = -1;
+		
+		// Birds-eye View Feature: Viewpoint-aware raycasting
+		[Header("Viewpoint-Aware Raycasting")]
+		[Tooltip("Detector for inside/outside corridor viewpoint. If null, assumes inside (default behavior).")]
+		[SerializeField] private CorridorViewpointDetector _viewpointDetector;
+		[Tooltip("Layer for corridor shell (outer walls/ceiling). Raycasts ignore this layer when outside corridor.")]
+		[SerializeField] private LayerMask _corridorShellLayer = 0; // Default: no layer (disabled)
 
 		[Header("Input Settings")]
 		[SerializeField] private float _hapticAmplitude = 0.3f;
@@ -80,6 +87,27 @@ namespace Points
 		{
 			_rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
 			_leftHand = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+			
+			// Birds-eye View Feature: Auto-find viewpoint detector if not assigned
+			if (_viewpointDetector == null)
+			{
+				_viewpointDetector = UnityEngine.Object.FindFirstObjectByType<CorridorViewpointDetector>();
+				if (_viewpointDetector != null)
+				{
+					Debug.Log("PathModeController: Auto-found CorridorViewpointDetector");
+				}
+			}
+			
+			// Birds-eye View Feature: Try to find CorridorShell layer by name if not set
+			if (_corridorShellLayer == 0)
+			{
+				int shellLayer = LayerMask.NameToLayer("CorridorShell");
+				if (shellLayer >= 0)
+				{
+					_corridorShellLayer = 1 << shellLayer;
+					Debug.Log($"PathModeController: Auto-found CorridorShell layer (index {shellLayer})");
+				}
+			}
 		}
 
 		private void Update()
@@ -148,7 +176,9 @@ namespace Points
 			Vector3 direction = rightControllerTransform.forward;
 
 		// First try to hit a point handle with much longer range for better reliability
-		if (Physics.Raycast(origin, direction, out RaycastHit hit, 50f, _pointLayerMask))
+		// Birds-eye View Feature: Use viewpoint-aware raycast mask
+		LayerMask raycastMask = GetViewpointAwareRaycastMask(_pointLayerMask);
+		if (Physics.Raycast(origin, direction, out RaycastHit hit, 50f, raycastMask))
 		{
 			Debug.Log($"PathMode raycast hit: {hit.collider.name} at distance {hit.distance}");
 			
@@ -174,13 +204,32 @@ namespace Points
 			
 			Debug.Log($"Hit {hit.collider.name} but no PointHandle or StartEndPoint component found");
 		}
-		else
+		
+		// Birds-eye View Feature: If raycast didn't hit (e.g., from outside), try to find closest waypoint to ray direction
+		// This allows connecting waypoints from outside even if depth isn't correct
+		bool isOutside = _viewpointDetector != null && !_viewpointDetector.IsInsideCorridor;
+		if (isOutside && _pointManager != null)
 		{
-			Debug.Log("PathMode raycast hit nothing");
+			PointHandle closestWaypoint = FindClosestWaypointToRay(origin, direction);
+			if (closestWaypoint != null)
+			{
+				Debug.Log($"From outside: Found closest waypoint {closestWaypoint.Id} to ray direction");
+				AddPointToRoute(closestWaypoint);
+				return;
+			}
+			
+			// Also check Start/End points
+			var closestStartEnd = FindClosestStartEndPointToRay(origin, direction);
+			if (closestStartEnd != null)
+			{
+				Debug.Log($"From outside: Found closest Start/End point {closestStartEnd.Type} to ray direction");
+				AddStartEndPointToRoute(closestStartEnd);
+				return;
+			}
 		}
 
-		// If no point is hit, treat as a no-op to avoid accidentally clearing/starting routes
-		// Do not start a new route on empty-space clicks
+		// If no point is found, treat as a no-op to avoid accidentally clearing/starting routes
+		Debug.Log("PathMode: No waypoint found to connect");
 		return;
 		}
 
@@ -661,7 +710,9 @@ namespace Points
 			Vector3 origin = rightControllerTransform.position;
 			Vector3 direction = rightControllerTransform.forward;
 
-		if (Physics.Raycast(origin, direction, out RaycastHit hit, 10f, _pointLayerMask))
+		// Birds-eye View Feature: Use viewpoint-aware raycast mask
+		LayerMask raycastMask = GetViewpointAwareRaycastMask(_pointLayerMask);
+		if (Physics.Raycast(origin, direction, out RaycastHit hit, 10f, raycastMask))
 		{
 			// Check for regular waypoint
 			var pointHandle = hit.collider.GetComponent<PointHandle>();
@@ -838,7 +889,31 @@ namespace Points
 		}
 
 		return Physics.CheckCapsule(capsuleStart, capsuleEnd, radius, mask, QueryTriggerInteraction.Ignore);
-	}
+		}
+		
+		/// <summary>
+		/// Birds-eye View Feature: Get raycast mask based on viewpoint.
+		/// When outside corridor, excludes CorridorShell layer to allow rays to pass through outer walls/ceiling.
+		/// When inside corridor, uses normal mask (solid colliders).
+		/// </summary>
+		private LayerMask GetViewpointAwareRaycastMask(LayerMask baseMask)
+		{
+			// If no viewpoint detector or no corridor shell layer, use base mask (default behavior)
+			if (_viewpointDetector == null || _corridorShellLayer == 0)
+			{
+				return baseMask;
+			}
+			
+			// If inside corridor, use normal mask (solid colliders)
+			if (_viewpointDetector.IsInsideCorridor)
+			{
+				return baseMask;
+			}
+			
+			// If outside corridor, exclude corridor shell layer (permeable for raycasting)
+			LayerMask permeableMask = baseMask & ~_corridorShellLayer;
+			return permeableMask;
+		}
 
 		private static int GetLastRealPointId(FlightPath route)
 		{
@@ -850,6 +925,121 @@ namespace Points
 			}
 
 			return -1;
+		}
+		
+		/// <summary>
+		/// Birds-eye View Feature: Find the closest waypoint to the ray direction when outside.
+		/// Uses angle and distance to determine which waypoint the user is pointing at.
+		/// </summary>
+		private PointHandle FindClosestWaypointToRay(Vector3 rayOrigin, Vector3 rayDirection)
+		{
+			if (_pointManager == null) return null;
+			
+			PointHandle closest = null;
+			float closestScore = float.MaxValue;
+			float maxAngle = 30f; // Maximum angle deviation (degrees)
+			float maxDistance = 20f; // Maximum distance to consider
+			
+			// Get all waypoints from PointsParent or find them in scene
+			PointHandle[] allWaypoints;
+			if (_pointManager.PointsParent != null)
+			{
+				allWaypoints = _pointManager.PointsParent.GetComponentsInChildren<PointHandle>();
+			}
+			else
+			{
+				// Fallback: find all waypoints in scene
+				allWaypoints = UnityEngine.Object.FindObjectsByType<PointHandle>(FindObjectsSortMode.None);
+			}
+			
+			foreach (var waypoint in allWaypoints)
+			{
+				if (waypoint == null) continue;
+				
+				Vector3 toWaypoint = (waypoint.transform.position - rayOrigin);
+				float distance = toWaypoint.magnitude;
+				
+				// Skip if too far
+				if (distance > maxDistance) continue;
+				
+				// Calculate angle between ray direction and waypoint direction
+				Vector3 toWaypointNormalized = toWaypoint.normalized;
+				float angle = Vector3.Angle(rayDirection, toWaypointNormalized);
+				
+				// Skip if angle is too large
+				if (angle > maxAngle) continue;
+				
+				// Score combines angle and distance (lower is better)
+				// Angle is weighted more heavily
+				float score = angle * 2f + distance * 0.1f;
+				
+				if (score < closestScore)
+				{
+					closestScore = score;
+					closest = waypoint;
+				}
+			}
+			
+			return closest;
+		}
+		
+		/// <summary>
+		/// Birds-eye View Feature: Find the closest Start/End point to the ray direction when outside.
+		/// </summary>
+		private StartEndPoint FindClosestStartEndPointToRay(Vector3 rayOrigin, Vector3 rayDirection)
+		{
+			if (_pathManager == null) return null;
+			
+			StartEndPoint closest = null;
+			float closestScore = float.MaxValue;
+			float maxAngle = 30f; // Maximum angle deviation (degrees)
+			float maxDistance = 20f; // Maximum distance to consider
+			
+			// Check Start point
+			var startPoint = _pathManager.GetStartPoint();
+			if (startPoint != null)
+			{
+				Vector3 toPoint = (startPoint.transform.position - rayOrigin);
+				float distance = toPoint.magnitude;
+				
+				if (distance <= maxDistance)
+				{
+					float angle = Vector3.Angle(rayDirection, toPoint.normalized);
+					if (angle <= maxAngle)
+					{
+						float score = angle * 2f + distance * 0.1f;
+						if (score < closestScore)
+						{
+							closestScore = score;
+							closest = startPoint;
+						}
+					}
+				}
+			}
+			
+			// Check End point
+			var endPoint = _pathManager.GetEndPoint();
+			if (endPoint != null)
+			{
+				Vector3 toPoint = (endPoint.transform.position - rayOrigin);
+				float distance = toPoint.magnitude;
+				
+				if (distance <= maxDistance)
+				{
+					float angle = Vector3.Angle(rayDirection, toPoint.normalized);
+					if (angle <= maxAngle)
+					{
+						float score = angle * 2f + distance * 0.1f;
+						if (score < closestScore)
+						{
+							closestScore = score;
+							closest = endPoint;
+						}
+					}
+				}
+			}
+			
+			return closest;
 		}
 
 		private void ProvideHapticFeedback(float amplitude, float duration)
