@@ -1,12 +1,12 @@
 # ninja log v5
-5	552	1764069718008846446	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	c7956487fb8d0c9
-553	717	1764069718167780391	/Users/hany/Drone Project/VRTestProjectGit/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/j5a45i6h/obj/arm64-v8a/libswappywrapper.so	708602f8c7e2f035
-2	2205	1764069719654933437	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	338b91a0b53c62ef
-1	2274	1764069719723566556	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	885a89e25fceeb58
-0	2291	1764069719740368410	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	17b98cf8fe1d61c4
-3	2298	1764069719748942294	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	e30a75b499f6a7e
-1	2387	1764069719839023081	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	7fb708f042bb1651
-4	2501	1764069719954067358	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	819b3067267a7709
-2	2651	1764069720103686380	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	dbcf5888b7179d85
-6	2821	1764069720273610076	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	9e040c3fdaf44054
-2821	2907	1764069720361464746	/Users/hany/Drone Project/VRTestProjectGit/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/j5a45i6h/obj/arm64-v8a/libgame.so	419975c5741baa86
+11	701	1764626203834683577	FramePacing/CMakeFiles/swappywrapper.dir/UnitySwappyWrapper.cpp.o	c7956487fb8d0c9
+701	810	1764626203942651740	/Users/hany/Drone Project/VRTestProjectGit/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/j5a45i6h/obj/arm64-v8a/libswappywrapper.so	708602f8c7e2f035
+6	2039	1764626205166317196	GameActivity/CMakeFiles/game.dir/UGAInputKeyEvent.cpp.o	338b91a0b53c62ef
+8	2211	1764626205336215605	GameActivity/CMakeFiles/game.dir/UGAInputMotionEvent.cpp.o	e30a75b499f6a7e
+1	2275	1764626205402069906	GameActivity/CMakeFiles/game.dir/UGAConfiguration.cpp.o	17b98cf8fe1d61c4
+2	2368	1764626205494466811	GameActivity/CMakeFiles/game.dir/UGADebug.cpp.o	7fb708f042bb1651
+10	2371	1764626205498940182	GameActivity/CMakeFiles/game.dir/UGASoftKeyboard.cpp.o	819b3067267a7709
+3	2380	1764626205509853532	GameActivity/CMakeFiles/game.dir/UGAEntry.cpp.o	885a89e25fceeb58
+4	2568	1764626205696988692	GameActivity/CMakeFiles/game.dir/UGAInput.cpp.o	dbcf5888b7179d85
+0	2698	1764626205826387401	GameActivity/CMakeFiles/game.dir/UGAApplication.cpp.o	9e040c3fdaf44054
+2699	2791	1764626205922704235	/Users/hany/Drone Project/VRTestProjectGit/Library/Bee/Android/Prj/IL2CPP/Gradle/unityLibrary/build/intermediates/cxx/RelWithDebInfo/j5a45i6h/obj/arm64-v8a/libgame.so	419975c5741baa86

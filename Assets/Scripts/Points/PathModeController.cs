@@ -205,27 +205,52 @@ namespace Points
 			Debug.Log($"Hit {hit.collider.name} but no PointHandle or StartEndPoint component found");
 		}
 		
-		// Birds-eye View Feature: If raycast didn't hit (e.g., from outside), try to find closest waypoint to ray direction
-		// This allows connecting waypoints from outside even if depth isn't correct
-		bool isOutside = _viewpointDetector != null && !_viewpointDetector.IsInsideCorridor;
-		if (isOutside && _pointManager != null)
+		// Proximity-based connection: If raycast didn't hit, try to find closest point (waypoint or Start/End) to ray direction
+		// This allows connecting points by proximity - depth is not important, just point at waypoints or Start/End points
+		// Check both waypoints and Start/End points, then use the one with the best score
+		PointHandle closestWaypoint = null;
+		StartEndPoint closestStartEnd = null;
+		float bestWaypointScore = float.MaxValue;
+		float bestStartEndScore = float.MaxValue;
+		
+		if (_pointManager != null)
 		{
-			PointHandle closestWaypoint = FindClosestWaypointToRay(origin, direction);
+			closestWaypoint = FindClosestWaypointToRay(origin, direction);
 			if (closestWaypoint != null)
 			{
-				Debug.Log($"From outside: Found closest waypoint {closestWaypoint.Id} to ray direction");
-				AddPointToRoute(closestWaypoint);
-				return;
+				// Calculate score for comparison
+				Vector3 toWaypoint = (closestWaypoint.transform.position - origin);
+				float distance = toWaypoint.magnitude;
+				float angle = Vector3.Angle(direction, toWaypoint.normalized);
+				bestWaypointScore = angle * 2f + distance * 0.1f;
 			}
-			
-			// Also check Start/End points
-			var closestStartEnd = FindClosestStartEndPointToRay(origin, direction);
+		}
+		
+		if (_pathManager != null)
+		{
+			closestStartEnd = FindClosestStartEndPointToRay(origin, direction);
 			if (closestStartEnd != null)
 			{
-				Debug.Log($"From outside: Found closest Start/End point {closestStartEnd.Type} to ray direction");
-				AddStartEndPointToRoute(closestStartEnd);
-				return;
+				// Calculate score for comparison
+				Vector3 toPoint = (closestStartEnd.transform.position - origin);
+				float distance = toPoint.magnitude;
+				float angle = Vector3.Angle(direction, toPoint.normalized);
+				bestStartEndScore = angle * 2f + distance * 0.1f;
 			}
+		}
+		
+		// Use the point with the best (lowest) score
+		if (bestWaypointScore < bestStartEndScore && closestWaypoint != null)
+		{
+			Debug.Log($"Found closest waypoint {closestWaypoint.Id} to ray direction (proximity-based)");
+			AddPointToRoute(closestWaypoint);
+			return;
+		}
+		else if (closestStartEnd != null)
+		{
+			Debug.Log($"Found closest Start/End point {closestStartEnd.Type} to ray direction (proximity-based)");
+			AddStartEndPointToRoute(closestStartEnd);
+			return;
 		}
 
 		// If no point is found, treat as a no-op to avoid accidentally clearing/starting routes
@@ -984,7 +1009,9 @@ namespace Points
 		}
 		
 		/// <summary>
-		/// Birds-eye View Feature: Find the closest Start/End point to the ray direction when outside.
+		/// Proximity-based connection: Find the closest Start/End point to the ray direction.
+		/// Uses angle and distance to determine which Start/End point the user is pointing at.
+		/// Depth is not important - just point in the general direction.
 		/// </summary>
 		private StartEndPoint FindClosestStartEndPointToRay(Vector3 rayOrigin, Vector3 rayDirection)
 		{
