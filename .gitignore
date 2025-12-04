@@ -75,3 +75,8 @@ crashlytics-build.properties
 # ETC
 .DS_Store
 
+# Large files are now tracked via Git LFS (see .gitattributes)
+# Removed: Assets/staircase with elevator.glb
+# Removed: Assets/03.12.2025 updated staircase obj/
+# Removed: Assets/03.12.2025 updated staircase obj/2.12.2025 updated staircase.obj
+
