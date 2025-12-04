@@ -689,6 +689,50 @@ namespace Points
 				}
 			}
 			
+			// Create segment from Start → first waypoint if this is the first waypoint
+			// Check if previousPointId is Start point (-1) or if route's last point is Start
+			if (_pathManager != null)
+			{
+				bool isFirstWaypoint = false;
+				var activeRouteForCheck = _pathManager.ActiveRoute;
+				
+				if (previousPointId.HasValue && previousPointId.Value == -1)
+				{
+					// Previous point is Start point, so this is the first waypoint
+					isFirstWaypoint = true;
+				}
+				else if (!previousPointId.HasValue && activeRouteForCheck != null)
+				{
+					// No previous waypoint found, check if route's last point is Start point
+					if (activeRouteForCheck.PointIds.Count > 0)
+					{
+						int lastPointId = activeRouteForCheck.PointIds[activeRouteForCheck.PointIds.Count - 1];
+						if (lastPointId == -1) // Start point
+						{
+							isFirstWaypoint = true;
+						}
+					}
+				}
+				
+				if (isFirstWaypoint)
+				{
+					var startPoint = _pathManager.GetStartPoint();
+					if (startPoint != null)
+					{
+						var experimentManager = Experiment.ExperimentDataManager.Instance;
+						if (experimentManager != null)
+						{
+							experimentManager.OnSegmentCreated(
+								-1, // Start point ID
+								pointHandle.Id,
+								startPoint.transform.position,
+								pointHandle.transform.position
+							);
+						}
+					}
+				}
+			}
+			
 			// Update the point's visual state immediately
 			pointHandle.UpdateVisualState();
 			
