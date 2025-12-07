@@ -487,7 +487,8 @@ namespace Experiment
         private string GetSaveFolderPath()
         {
             string basePath = Application.persistentDataPath;
-            string experimentFolder = Path.Combine(basePath, "isometric_corridor");
+            string experimentFolder = Path.Combine(basePath, "birdseyeview_Staircase");
+            Debug.Log($"[ExperimentDataManager] Save folder path: {experimentFolder}");
             return experimentFolder;
         }
 
