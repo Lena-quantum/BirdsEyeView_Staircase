@@ -305,6 +305,7 @@ namespace Points
 
 		/// <summary>
 		/// Handle left trigger for point removal - hover over a point and press left trigger to remove it.
+		/// Birds-eye View Feature: Uses RaycastAll to pass through Environment layer when outside.
 		/// </summary>
 		private void HandlePointRemoval()
 		{
@@ -320,53 +321,97 @@ namespace Points
 
 			Debug.Log($"Left trigger pressed - raycasting from LEFT controller at {origin} in direction {dir}");
 
-		// Raycast to find point handles with longer distance for better reliability
-		if (Physics.Raycast(origin, dir, out RaycastHit hit, 50f))
-		{
-			Debug.Log($"Ray hit: {hit.collider.name} at distance {hit.distance}");
+			// Birds-eye View Feature: Multi-pass raycast that passes through Environment layer when outside
+			// This allows deleting points inside the corridor even when viewing from outside
+			RaycastHit hit = new RaycastHit();
+			bool foundHit = false;
 			
-			// Check for regular waypoint
-			var pointHandle = hit.collider.GetComponent<PointHandle>();
-			if (pointHandle != null)
+			// Get Environment layer mask from manager
+			LayerMask environmentLayer = _manager != null ? _manager.EnvironmentLayerMask : (1 << LayerMask.NameToLayer("Environment"));
+			
+			// Also exclude CorridorShell if configured
+			LayerMask layersToPassThrough = environmentLayer;
+			if (_corridorShellLayer != 0)
 			{
-				Debug.Log($"Found point handle {pointHandle.Id}, removing it");
-				// Remove the point
-				bool removed = _manager.RemovePoint(pointHandle.Id);
-				if (removed)
-				{
-					_manager.ConfirmHaptics();
-					StopAllCoroutines();
-					StartCoroutine(FadeReadoutRoutine());
-				}
-				return;
+				layersToPassThrough = layersToPassThrough | _corridorShellLayer;
 			}
 			
-			// Check for Start/End point
-			var startEndPoint = hit.collider.GetComponent<Points.StartEndPoint>();
-			if (startEndPoint != null)
+			// If no viewpoint detector or inside corridor, use normal raycast
+			if (_viewpointDetector == null || _viewpointDetector.IsInsideCorridor)
 			{
-				Debug.Log($"Found Start/End point {startEndPoint.Type} (ID: {startEndPoint.PointId}), removing from route");
-				// Remove the Start/End point from the route
-				var pathManager = UnityEngine.Object.FindFirstObjectByType<Points.FlightPathManager>();
-				if (pathManager != null)
+				// Inside corridor: normal raycast (all layers)
+				foundHit = Physics.Raycast(origin, dir, out hit, 50f);
+			}
+			else
+			{
+				// Outside corridor: use RaycastAll to get ALL hits, then filter out Environment/CorridorShell
+				RaycastHit[] allHits = Physics.RaycastAll(origin, dir, 50f, ~0, QueryTriggerInteraction.Ignore);
+				
+				// Sort hits by distance (closest first)
+				System.Array.Sort(allHits, (a, b) => a.distance.CompareTo(b.distance));
+				
+				// Find the first hit that's NOT on a layer we want to pass through
+				foreach (RaycastHit testHit in allHits)
 				{
-					pathManager.RemoveWaypointFromRoute(startEndPoint.PointId);
-					_manager.ConfirmHaptics();
-					StopAllCoroutines();
-					StartCoroutine(FadeReadoutRoutine());
+					int hitLayer = testHit.collider.gameObject.layer;
+					bool isPassThroughLayer = (layersToPassThrough & (1 << hitLayer)) != 0;
+					
+					if (!isPassThroughLayer)
+					{
+						// This is a valid hit (not Environment or CorridorShell) - use it!
+						hit = testHit;
+						foundHit = true;
+						break;
+					}
 				}
-				return;
 			}
 			
-			Debug.Log($"Hit object {hit.collider.name} but no PointHandle or StartEndPoint component found");
-		}
-		else
-		{
-			Debug.Log("Left trigger raycast hit nothing");
-		}
+			if (foundHit)
+			{
+				Debug.Log($"Ray hit: {hit.collider.name} at distance {hit.distance}");
+				
+				// Check for regular waypoint
+				var pointHandle = hit.collider.GetComponent<PointHandle>();
+				if (pointHandle != null)
+				{
+					Debug.Log($"Found point handle {pointHandle.Id}, removing it");
+					// Remove the point
+					bool removed = _manager.RemovePoint(pointHandle.Id);
+					if (removed)
+					{
+						_manager.ConfirmHaptics();
+						StopAllCoroutines();
+						StartCoroutine(FadeReadoutRoutine());
+					}
+					return;
+				}
+				
+				// Check for Start/End point
+				var startEndPoint = hit.collider.GetComponent<Points.StartEndPoint>();
+				if (startEndPoint != null)
+				{
+					Debug.Log($"Found Start/End point {startEndPoint.Type} (ID: {startEndPoint.PointId}), removing from route");
+					// Remove the Start/End point from the route
+					var pathManager = UnityEngine.Object.FindFirstObjectByType<Points.FlightPathManager>();
+					if (pathManager != null)
+					{
+						pathManager.RemoveWaypointFromRoute(startEndPoint.PointId);
+						_manager.ConfirmHaptics();
+						StopAllCoroutines();
+						StartCoroutine(FadeReadoutRoutine());
+					}
+					return;
+				}
+				
+				Debug.Log($"Hit object {hit.collider.name} but no PointHandle or StartEndPoint component found");
+			}
+			else
+			{
+				Debug.Log("Left trigger raycast hit nothing");
+			}
 
-		// If no point hit, provide feedback that nothing was removed
-		_manager.TickHaptics(0.1f, 0.02f);
+			// If no point hit, provide feedback that nothing was removed
+			_manager.TickHaptics(0.1f, 0.02f);
 		}
 
 		// Simple hover tracking
