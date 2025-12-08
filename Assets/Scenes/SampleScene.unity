@@ -1894,7 +1894,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   participantID: P01
-  taskVariant: 0
+  taskVariant: 3
   _mainCamera: {fileID: 192586346}
   _flightPathManager: {fileID: 97412684}
   _pointPlacementManager: {fileID: 1558470525}
