@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Points;
 
 public class PlayerVerticalThruster : MonoBehaviour
 {
@@ -12,6 +13,10 @@ public class PlayerVerticalThruster : MonoBehaviour
     [Header("Input Actions")]
     public InputActionProperty flyUpAction;    // Y button (left controller)
     public InputActionProperty flyDownAction;  // X button (left controller)
+
+    [Header("Viewpoint Detection")]
+    [Tooltip("Optional: Detector for inside/outside corridor. If null, will auto-find.")]
+    [SerializeField] private CorridorViewpointDetector _viewpointDetector;
 
     private CharacterController _characterController;
 
@@ -26,6 +31,19 @@ public class PlayerVerticalThruster : MonoBehaviour
         if (_characterController == null)
         {
             Debug.LogWarning("PlayerVerticalThruster: No CharacterController found. Vertical movement will ignore collisions.");
+        }
+    }
+
+    private void Start()
+    {
+        // Auto-find viewpoint detector if not assigned
+        if (_viewpointDetector == null)
+        {
+            _viewpointDetector = FindFirstObjectByType<CorridorViewpointDetector>();
+            if (_viewpointDetector != null)
+            {
+                Debug.Log("PlayerVerticalThruster: Auto-found CorridorViewpointDetector");
+            }
         }
     }
 
@@ -57,9 +75,20 @@ public class PlayerVerticalThruster : MonoBehaviour
         {
             Vector3 move = Vector3.up * vertical * verticalSpeed * Time.deltaTime;
             
-            // Use CharacterController for collision-aware movement
-            if (_characterController != null)
+            // Check if we're outside the corridor
+            // When outside, bypass CharacterController to avoid CorridorShell collisions
+            bool isOutside = _viewpointDetector != null && !_viewpointDetector.IsInsideCorridor;
+            
+            if (isOutside)
             {
+                // Outside corridor: Use direct transform movement to bypass CorridorShell collisions
+                // This allows free vertical movement when viewing from outside
+                rigRoot.position += move;
+            }
+            else if (_characterController != null)
+            {
+                // Inside corridor: Use CharacterController for collision-aware movement
+                // This respects Environment layer collisions (floors, walls, etc.)
                 _characterController.Move(move);
             }
             else

@@ -336,8 +336,35 @@ namespace Points
 				layersToPassThrough = layersToPassThrough | _corridorShellLayer;
 			}
 			
-			// If no viewpoint detector or inside corridor, use normal raycast
-			if (_viewpointDetector == null || _viewpointDetector.IsInsideCorridor)
+			// Robust viewpoint detection: Check if we're truly outside
+			// Use distance-based validation to prevent incorrect state flips
+			bool isTrulyOutside = false;
+			if (_viewpointDetector != null)
+			{
+				bool isInside = _viewpointDetector.IsInsideCorridor;
+				
+				// Additional validation: Check distance from corridor bounds
+				// If we're far enough outside, we're definitely outside (prevents edge case flips)
+				Bounds corridorBounds = _viewpointDetector.CorridorBounds;
+				Vector3 playerPos = origin; // Use controller position as reference
+				float distanceToBounds = GetDistanceToBounds(playerPos, corridorBounds);
+				
+				// If we're more than 1m away from bounds, we're definitely outside
+				// This prevents incorrect flips when at the boundary
+				if (distanceToBounds > 1.0f && !isInside)
+				{
+					isTrulyOutside = true;
+				}
+				else if (!isInside && distanceToBounds > 0.1f)
+				{
+					// Close to boundary but outside - still use pass-through
+					isTrulyOutside = true;
+				}
+				// If inside or very close to boundary, use normal raycast
+			}
+			
+			// If no viewpoint detector or truly inside corridor, use normal raycast
+			if (_viewpointDetector == null || !isTrulyOutside)
 			{
 				// Inside corridor: normal raycast (all layers)
 				foundHit = Physics.Raycast(origin, dir, out hit, 50f);
@@ -541,6 +568,23 @@ namespace Points
 			}
 			
 			return false;
+		}
+		
+		/// <summary>
+		/// Calculate the minimum distance from a point to a bounding box.
+		/// Returns 0 if the point is inside the bounds.
+		/// </summary>
+		private float GetDistanceToBounds(Vector3 point, Bounds bounds)
+		{
+			// If point is inside bounds, return 0
+			if (bounds.Contains(point))
+				return 0f;
+			
+			// Find the closest point on the bounds to the given point
+			Vector3 closestPoint = bounds.ClosestPoint(point);
+			
+			// Return distance to closest point
+			return Vector3.Distance(point, closestPoint);
 		}
 		
 		/// <summary>
